@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-07
-> Total pages: 41
+> Total pages: 43
 > Sources ingested: 8 repos/articles + 1 architecture session + 7 external reviews + 1 implementation plan + 1 research PDF + 1 template
 
 ## Templates
@@ -16,6 +16,7 @@
 - [[segment-clones]] — Special Ops. Disposable executors in git worktrees. Unlimited parallel.
 - [[segment-janitor]] — The Muscle. Doubts everything. Prunes, simplifies, audits.
 - [[segment-forge]] — Perpetual Improvement. Shadow benchmarks. Tool building. Process replacement.
+- [[segment-bridge]] — The Output Layer. Everything the user sees. Telegram + multi-channel relay. Never go radio silent.
 
 ## Concepts
 
@@ -51,7 +52,8 @@
 
 ## Decisions
 
-- [[decision-six-segments]] — Why six segments, not three or ten.
+- [[decision-six-segments]] — Why six segments (original — superseded).
+- [[decision-seven-segments]] — Why seven: The Bridge earns segment status. Output reliability = execution reliability.
 - [[decision-brain-never-executes]] — The Brain plans. Period.
 - [[decision-forge-independence]] — Why the Forge never touches production directly.
 - [[review-architecture-audit]] — Full critical review: what works, what breaks, what's untested.

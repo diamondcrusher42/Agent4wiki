@@ -42,5 +42,7 @@ Every interaction compressed into structured digest before reaching User Agent. 
 - → [[segment-brain]]: injects user context, alignment, credentials on request
 - → [[segment-clones]]: provides credentials and service state (read-only, on-demand)
 - ← [[segment-janitor]]: receives health check results
+- ← [[segment-bridge]]: forwards incoming user messages as structured events
 - ← [[entity-telegram-bots]]: receives bot status, user messages, error alerts
 - ← [[segment-forge]]: receives improvement metrics, usage pattern insights
+- → [[segment-bridge]]: sends outbound responses, digests, credential-gated outputs

@@ -1,6 +1,8 @@
 # Decision: Six Segments
 
-## Why Six
+> ⚠️ **Superseded by [[decision-seven-segments]]** — The Bridge (Segment 7) added 2026-04-08.
+
+## Why Six (Original Rationale — preserved for history)
 
 Each segment has a fundamentally different relationship with context, tokens, and time:
 
