@@ -1,8 +1,8 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-07
-> Total pages: 40
-> Sources ingested: 8 repos/articles + 1 architecture session + 6 external reviews + 1 implementation plan + 1 research PDF
+> Total pages: 41
+> Sources ingested: 8 repos/articles + 1 architecture session + 7 external reviews + 1 implementation plan + 1 research PDF
 
 ## Segments
 
@@ -58,6 +58,7 @@
 - [[review-opus-review1]] — Opus deep-dive: 5 new blind spots, 3 conflicts, repo structure, productization, autonomy levels, 6 upgrades, 6 quick wins.
 - [[review-gemini-review4]] — Gemini feasibility check: engine/state repo separation, Docker sandboxing, clone bootstrap, irreversible action gate.
 - [[review-pdf-agentic-ecosystem]] — Research PDF: MCP as native protocol, Code Mode 98.7% token reduction, E2B microVMs, credential proxying, MCP security threats.
+- [[review-gemini-review5]] — Gemini synthesis: skills → architecture mappings. Sequential Thinking for Brain, Repomix for coding clones, Absolute-Human format for Janitor audit logs. "Start building."
 
 ## Log
 

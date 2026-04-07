@@ -22,3 +22,15 @@ Every Mission Brief must include a `## Bootstrap` section specifying environment
 ```
 
 The Brain selects the correct bootstrap block from `core/templates/` per skill type. Omitting this causes immediate clone failure on dependency errors.
+
+**Mandatory for coding clones (from [[review-gemini-review5]]):**
+```bash
+repomix --output context.md --ignore node_modules,dist
+```
+Run before the clone reads any source files. Packs the repo into a single AI-friendly file (~70% token reduction). Never skip this step — clones without codebase context produce incorrect diffs.
+
+## Sequential Thinking Pre-Pass (Brain)
+
+> Source: [[review-gemini-review5]]
+
+Before the Brain writes any Mission Brief, it must complete a Sequential Thinking pass (`@modelcontextprotocol/server-sequential-thinking`). The auditable reasoning chain (with `revisesThought`/`branchFromThought` state) is logged and becomes part of the delegation audit trail. Clones must never receive a brief that wasn't produced through structured decomposition.

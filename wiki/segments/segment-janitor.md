@@ -78,6 +78,23 @@ Both the Janitor and the Forge audit clone quality and propose improvements. Wit
 - Forge runs after — builds alternatives to what exists
 - **Janitor can veto a Forge promotion** if it introduces a quality regression vs. prior baseline
 
+## Audit Log Format — Absolute-Human board.md
+
+> Source: [[review-gemini-review5]]
+
+Janitor audit logs adopt the Absolute-Human workflow syntax — not free-form text but a structured state machine. Each audit cycle is a board entry with explicit status transitions:
+
+```
+INTAKE: [what triggered this audit]
+DISCOVER: [findings — severity-tagged]
+PLAN: [proposed actions]
+EXECUTE: [actions taken]
+VERIFY: [confirmed resolved / still open]
+CONVERGE: [health score delta, deferred items]
+```
+
+File: `janitor/audit-board.md` (persistent, append-only per cycle). Nothing is lost between audit runs. Status transitions are explicit and queryable.
+
 ## Token Strategy
 
 [[tool-bitnet]] on CPU for routine passes. Cloud API for judgment calls. Budget allocated to thoroughness, not frequency.
