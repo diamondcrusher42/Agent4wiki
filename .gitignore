@@ -26,3 +26,19 @@ state/**
 # Ensure Clones don't accidentally commit their injected .env files
 # if they somehow bypass the worktree sandbox (Defense in Depth)
 state/worktrees/*/.env
+
+# Dispatcher runtime artifacts
+*.dispatcher-prompt.md
+
+# Event logs (ephemeral — high-volume, not for git history)
+events/*.jsonl
+
+# Python artifacts (MemPalace, BitNet, dispatcher tooling)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Vault backups / temporaries
+*.vault.bak
+*.vault.tmp

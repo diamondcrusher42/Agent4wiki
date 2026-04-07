@@ -1,0 +1,28 @@
+# core/keychain/config/rotation.yaml
+# Key rotation schedule and policy.
+# The Keychain droid checks this weekly and alerts via Telegram if overdue.
+#
+# Format:
+#   KEY_NAME:
+#     rotate_every_days: N
+#     last_rotated: YYYY-MM-DD   # Updated manually or via rotation script
+#     reminder_days_before: N    # Alert N days before expiry
+#     rotation_doc: "URL or instructions"
+
+ANTHROPIC_API_KEY:
+  rotate_every_days: 90
+  last_rotated: null          # Set on first rotation
+  reminder_days_before: 14
+  rotation_doc: "https://console.anthropic.com/settings/keys"
+
+GITHUB_TOKEN:
+  rotate_every_days: 365      # Classic PATs expire annually
+  last_rotated: null
+  reminder_days_before: 30
+  rotation_doc: "https://github.com/settings/tokens"
+
+TELEGRAM_KIDS_BOT:
+  rotate_every_days: 365
+  last_rotated: null
+  reminder_days_before: 30
+  rotation_doc: "Revoke and regenerate via @BotFather /token"

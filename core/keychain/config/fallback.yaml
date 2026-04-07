@@ -1,0 +1,22 @@
+# core/keychain/config/fallback.yaml
+# Graceful degradation chains when a credential or service is unavailable.
+# The Keychain checks this before failing — try the fallback first.
+#
+# Format:
+#   primary_key: fallback_key_or_null
+
+ANTHROPIC_API_KEY:
+  fallback: null          # No fallback for primary AI — fail loudly
+  on_fail: BLOCK          # Directive to Janitor if no credential available
+
+EXA_API_KEY:
+  fallback: TAVILY_API_KEY  # Secondary research API
+  on_fail: SUGGEST          # Degrade gracefully, Brain can retry with different research tool
+
+GITHUB_TOKEN:
+  fallback: null
+  on_fail: BLOCK            # Can't commit without auth — hard stop
+
+TELEGRAM_KIDS_BOT:
+  fallback: null
+  on_fail: BLOCK            # Comms failure = escalate to human

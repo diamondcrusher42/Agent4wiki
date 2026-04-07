@@ -1,0 +1,50 @@
+# core/keychain/config/scopes.yaml
+# Defines which credential scopes each clone skill type can access.
+# The Keychain builds a scoped .env from this at spawn time.
+# Clones never see keys outside their declared scope.
+#
+# Format:
+#   skill_name:
+#     keys: [KEY_NAME, ...]          # required credentials
+#     endpoints: [domain, ...]       # allowed outbound hosts
+#     max_tokens_per_session: N      # optional budget cap
+
+code:
+  keys:
+    - ANTHROPIC_API_KEY
+    - GITHUB_TOKEN
+  endpoints:
+    - api.anthropic.com
+    - api.github.com
+    - github.com
+  max_tokens_per_session: 200000
+
+research:
+  keys:
+    - ANTHROPIC_API_KEY
+    - EXA_API_KEY
+  endpoints:
+    - api.anthropic.com
+    - api.exa.ai
+    - reddit.com
+    - news.ycombinator.com
+  max_tokens_per_session: 100000
+
+devops:
+  keys:
+    - ANTHROPIC_API_KEY
+    - GITHUB_TOKEN
+  endpoints:
+    - api.anthropic.com
+    - api.github.com
+    - github.com
+  max_tokens_per_session: 150000
+
+kids_bot:
+  keys:
+    - TELEGRAM_KIDS_BOT
+    - ANTHROPIC_API_KEY
+  endpoints:
+    - api.anthropic.com
+    - api.telegram.org
+  max_tokens_per_session: 50000  # Hard budget for kids context
