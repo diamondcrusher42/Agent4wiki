@@ -1,0 +1,34 @@
+# Agent4 — Python dependencies
+#
+# Core dispatcher: ZERO third-party deps (uses stdlib only):
+#   json, pathlib, dataclasses, logging, subprocess, shutil, datetime, typing
+#
+# Install only what your node needs. Uncomment the relevant section.
+# Use the venv: source venv/bin/activate
+
+# ── OPTIONAL: Security node (Kali) ──────────────────────────────────────────
+# python-nmap>=0.7.1        # nmap Python binding (nmap must be installed via apt)
+# scapy>=2.5.0              # packet crafting + network discovery
+# requests>=2.31.0          # HTTP requests for web scanning helpers
+
+# ── OPTIONAL: GPU node (inference, image gen, transcription) ─────────────────
+# torch>=2.1.0              # PyTorch (CUDA version — see pytorch.org for install cmd)
+# openai-whisper>=20231117  # Whisper speech-to-text
+# diffusers>=0.25.0         # Stable Diffusion / image gen
+# transformers>=4.37.0      # HuggingFace models
+# accelerate>=0.26.0        # GPU acceleration helpers
+
+# ── OPTIONAL: GUI automation (Windows/Mac/Linux desktop) ─────────────────────
+# pyautogui>=0.9.54         # Cross-platform GUI automation
+# playwright>=1.41.0        # Browser automation (run: playwright install after pip install)
+# pillow>=10.0.0             # Screenshots + image handling
+
+# ── OPTIONAL: Office automation (Windows with COM) ───────────────────────────
+# pywin32>=306              # Windows COM objects (Outlook, Excel, Word) — Windows only
+
+# ── OPTIONAL: Fleet health monitoring ────────────────────────────────────────
+# psutil>=5.9.0             # CPU/memory/disk/network metrics for heartbeat
+# requests>=2.31.0          # HTTP health checks
+
+# ── OPTIONAL: MemPalace Python client (if not using MCP) ─────────────────────
+# mempalace>=0.3.0          # Direct Python client (alternative to MCP server)
