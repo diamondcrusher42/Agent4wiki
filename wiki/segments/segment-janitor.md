@@ -6,6 +6,39 @@
 
 Adversarial auditor. Prunes, challenges, simplifies, and enforces quality across the entire system. Runs on schedule AND on-demand after major changes.
 
+## Phase 6 Deliverables — Implementation
+
+> Code: `core/janitor/auditor.ts` + `core/janitor/scythe.ts`
+
+### Janitor.evaluateMission() — Audit Loop
+
+Decision sequence (in priority order):
+
+| Priority | Condition | Directive | Human? |
+|----------|-----------|-----------|--------|
+| 1 | retries ≥ 3 | BLOCK | ✅ Circuit breaker |
+| 2 | BLOCKED_IMPOSSIBLE | BLOCK | ✅ Brain must re-plan |
+| 3 | tests_passed=false or FAILED_REQUIRE_HUMAN | BLOCK | Only if FAILED_REQUIRE_HUMAN |
+| 4 | janitor_notes contains hacky/todo/fragile/slow | SUGGEST | ✗ One more try |
+| 5 | Passable | NOTE | ✗ Merge + log for Forge |
+
+### WikiScythe.pruneStaleKnowledge() — Memory Maintenance
+
+Runs on Janitor audit schedule (weekly or post-major-change). Uses `MemoryStore.audit()` to get structured report → deletes stale entries (90+ days = cold tier), flags contradictions, logs orphan pages. Output written to `janitor/audit-board.md` in Absolute-Human format.
+
+### The Full Loop (How Phase 6 Closes the System)
+
+```
+Clone finishes → JSON handshake submitted
+  ↓
+Keychain.revokeEnvironment() → delete .env → scanForLeaks()
+  ↓
+Janitor.evaluateMission(handshake, retries)
+  → NOTE  → auto-merge → Forge log entry ("It works but it's slow")
+  → SUGGEST → Brain re-briefs, clone retries (max 3x)
+  → BLOCK → Brain re-delegates OR escalates to human via Bridge
+```
+
 ## Audit Domains
 
 ### File Audits

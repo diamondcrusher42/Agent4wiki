@@ -58,6 +58,10 @@ Deep challenge of all 6 segments, 10 concepts, 7 tools, 3 decisions. 7 strengths
 
 Combined all sources into unified architecture. Added Segment 6 (The Forge) for perpetual improvement. Established 12 core architecture rules. Defined 5-phase implementation plan. Pages created: [[segment-forge]], [[concept-shadow-benchmarking]], [[decision-six-segments]], [[decision-brain-never-executes]], [[decision-forge-independence]].
 
+## [2026-04-08] ingest | Janitor-engine.md (Phase 6 first deliverable — Janitor auditor + WikiScythe)
+
+Source: raw/Janitor-engine.md. Phase 6 deliverable: Janitor.evaluateMission() (core/janitor/auditor.ts) + WikiScythe.pruneStaleKnowledge() (core/janitor/scythe.ts). Auditor: 5-priority decision sequence (circuit breaker → BLOCKED_IMPOSSIBLE → fatal failure → architectural mess → passable). Added BLOCKED_IMPOSSIBLE handling from TASK V2. detectsArchitecturalMess: keyword check on janitor_notes (hacky/todo/fragile/slow/tech debt). WikiScythe: uses MemoryStore.audit() → acts on structured AuditReport, deletes stale entries, flags contradictions, logs orphans, follows Absolute-Human board format. The full loop documented: clone finishes → Keychain sweeps → Janitor audits → NOTE/SUGGEST/BLOCK → Forge log. Pages updated: [[segment-janitor]] (Phase 6 deliverables section + full loop diagram).
+
 ## [2026-04-08] ingest | User_agent_template.md (Phase 3 first deliverable — ComplexityClassifier + UserAgent)
 
 Source: raw/User_agent_template.md. Phase 3 deliverable: ComplexityClassifier (core/routing/classifier.ts) + UserAgent (core/user_agent/agent.ts) + state schema (state/user_agent/state.json). ComplexityClassifier: regex heuristics only (no LLM — per review-gemini-review3), routes DIRECT/BRAIN_ONLY/FULL_PIPELINE. UserAgent: top-level orchestrator, classifies every prompt, dispatches to path, compresses history every 10 turns via Summary Pipeline (BitNet 2B local). state.json schema: last_updated/current_intent/active_worktrees/open_items/recent_context_summary/confidence_score — target ≤500 tokens. Pages updated: [[segment-user-agent]] (Phase 3 deliverables section added with routing table and state schema).
