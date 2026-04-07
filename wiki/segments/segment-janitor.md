@@ -52,6 +52,17 @@ The Janitor's "doubt everything" mandate creates a deadlock risk. If a Clone com
 - Rejection reason must be specific enough for the Brain to write a materially different brief — vague rejections must be treated as SUGGEST, not BLOCK
 - Circuit breaker: if same mission fails N times with identical Janitor pattern, route to human
 
+## ⚠️ Janitor vs. Forge Territory Rule
+
+> Flagged by: [[review-opus-review1]]
+
+Both the Janitor and the Forge audit clone quality and propose improvements. Without a hard rule, they conflict over what "better" means.
+
+**Rule: Janitor is reactive. Forge is proactive. They never modify the same thing in the same cycle.**
+- Janitor runs first — identifies problems in what currently exists
+- Forge runs after — builds alternatives to what exists
+- **Janitor can veto a Forge promotion** if it introduces a quality regression vs. prior baseline
+
 ## Token Strategy
 
 [[tool-bitnet]] on CPU for routine passes. Cloud API for judgment calls. Budget allocated to thoroughness, not frequency.

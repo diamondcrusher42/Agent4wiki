@@ -1,8 +1,8 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-07
-> Total pages: 33
-> Sources ingested: 7 repos/articles + 1 architecture session + 4 external reviews + 1 implementation plan
+> Total pages: 37
+> Sources ingested: 7 repos/articles + 1 architecture session + 5 external reviews + 1 implementation plan
 
 ## Segments
 
@@ -25,6 +25,9 @@
 - [[concept-summary-pipeline]] — How interactions get compressed before reaching the User Agent.
 - [[concept-git-worktrees]] — Parallel isolated execution environments for clones.
 - [[concept-soul-md]] — Voice and personality persistence across all agents.
+- [[concept-inter-agent-protocol]] — JSON-lines event log per channel. How segments communicate.
+- [[concept-dispatcher]] — Lightweight script bridging always-on droids to session-based Brain/Clone launches.
+- [[concept-wiki-tiering]] — Hot/warm/cold archive tiers. 500-token index cap. Prevents wiki growth failure.
 
 ## Tools
 
@@ -51,6 +54,7 @@
 - [[plan-implementation-v4]] — 7-phase build plan sequenced by dependency. Phase 1=Memory, Phase 7=Forge.
 - [[plan-forge-v01-benchmarking]] — Forge V0.1: model benchmarking cascade. Sonnet→Haiku→Ollama→BitNet→Opus. Produces routing matrix.
 - [[review-gemini-review3]] — Gemini review 3: plan validated as bulletproof + 4 tweaks (async MemoryStore, regex classifier, worktree teardown, Phase 5 as Forge seed).
+- [[review-opus-review1]] — Opus deep-dive: 5 new blind spots, 3 conflicts, repo structure, productization, autonomy levels, 6 upgrades, 6 quick wins.
 
 ## Log
 

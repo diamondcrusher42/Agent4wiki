@@ -32,6 +32,14 @@ Living registry of every file, its purpose, last modifier. Tracks all repos and 
 ### Result Integration
 Reviews clone outputs. Merges branches. Runs atomize pass (outputs → wiki pages). Updates [[segment-memory]]. Grades clone performance for [[segment-forge]] template improvement.
 
+## ⚠️ Missing Piece: The Dispatcher
+
+> Flagged by: [[review-opus-review1]]
+
+The Brain starts fresh every session via `/new`. Currently, only a human (via Telegram) can start a Brain session. But always-on droids that detect problems have no path to a Brain response — the architecture has a dead end without a dispatcher.
+
+**Required:** `brain/dispatcher.py` — a lightweight Python script that watches the event queue and launches Brain sessions with appropriate context when droids or tasks trigger them. See [[concept-dispatcher]].
+
 ## Architecture Rule
 
 **If the Brain is doing work (writing code, editing files, running commands), the architecture is broken.** See [[decision-brain-never-executes]].

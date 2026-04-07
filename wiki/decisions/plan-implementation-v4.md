@@ -93,6 +93,9 @@
 - **Manual mission brief templates** for all 8 skill types (code, docs, research, devops, qa, health, accounting, telegram) — `brain/templates/{skill}.md`
 - Git worktree creation extended with `allowedPaths` from Phase 2
 - **Worktree teardown script** — create and cleanup are a pair; Janitor approval triggers teardown signal → worktree archived to `clones/archive/` or deleted. Orphaned directories fill disk fast (see [[review-gemini-review3]])
+- **Inter-agent event protocol** — JSON-lines event log per channel (`events/brain-to-clones.jsonl`, `janitor-alerts.jsonl`, `clone-completions.jsonl`, `droid-alerts.jsonl`). Single writer per channel. See [[concept-inter-agent-protocol]]
+- **`brain/dispatcher.py`** — lightweight Python script (~50 lines) watches `events/` directory, launches Brain/Clone sessions from task files and droid alerts. Missing glue between always-on and session-based components. See [[concept-dispatcher]]
+- **Single-writer rule enforced**: only Brain writes to `wiki/index.md`, only User Agent writes to `user/state.json`, clones write only to `clones/results/{clone-id}/`
 - TASK.md format finalized: objective, context pages, constraints, output format, success criteria, credential capabilities
 - Soul.md auto-injected into every TASK.md
 - Brain session startup sequence validated: `/new` → index.md → state.json → AAAK wake-up → plan
@@ -104,6 +107,9 @@
 ### Addresses
 - Mission brief as critical path → [[review-architecture-audit]] #11
 - Brain starts fresh = wiki quality → wiki must be current before every session
+- Inter-agent communication undefined → [[review-opus-review1]]
+- Dispatcher (Brain launcher) missing → [[review-opus-review1]]
+- Concurrency / single-writer rule → [[review-opus-review1]]
 
 ---
 
