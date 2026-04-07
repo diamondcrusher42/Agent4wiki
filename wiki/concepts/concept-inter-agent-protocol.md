@@ -11,8 +11,21 @@ The architecture specifies what each segment does but not how they communicate. 
 | Option | Complexity | When to use |
 |--------|-----------|-------------|
 | JSON-lines event log per channel | Low | MVP — start here |
-| SQLite-backed message queue | Medium | When ordering + durability matters |
-| Redis pub/sub | High | Real-time requirements only — overkill for MVP |
+| **MCP servers per segment** | Medium | Preferred target architecture — see below |
+| SQLite-backed message queue | Medium | When ordering + durability matters without MCP |
+| Redis pub/sub | High | Real-time requirements only — overkill |
+
+## ⭐ Target Architecture: MCP as Native Protocol
+
+> Informed by: [[review-pdf-agentic-ecosystem]] | [[tool-mcp-protocol]]
+
+MCP (Model Context Protocol) is the community-validated standard for exactly this problem — JSON-RPC 2.0 over stdio (local/fast) or SSE (remote/persistent). Building each segment as an MCP server gives:
+- **Reflective discovery** — agents query "what can you do?" and get a live capability list
+- **stdio for local speed** — no network overhead for same-machine segments
+- **Universal compatibility** — any MCP-capable host can connect without custom code
+- **Proven security model** — per-user authorization, audited tool schemas
+
+**Upgrade path:** Start with JSON-lines MVP → graduate to MCP servers per segment as each is built. The Keychain Agent MCP server is the first priority (flagged independently by [[review-opus-review1]]).
 
 ## MVP: JSON-Lines Event Log
 

@@ -30,10 +30,17 @@ This is a deployment configuration requirement, not a design change. See [[tool-
 
 `allowedPaths` relies on Claude Code's internal enforcement — it's a configuration boundary, not a kernel boundary. For high-sensitivity clones (financial, security, external API), run inside Docker containers for absolute isolation. A containerized clone has no path back to the host machine's root directory.
 
-**Tiered isolation:**
-- **Default (lightweight tasks):** `allowedPaths` in `.claude/settings.json`
-- **Escalation (high-sensitivity):** Docker container with no host volume mounts
-- **Mission brief must specify** which isolation level the clone requires
+**Three-tier isolation model:**
+
+| Tier | Technology | When to use |
+|------|-----------|------------|
+| 1 — Default | `allowedPaths` in `.claude/settings.json` | Routine tasks, trusted code only |
+| 2 — Sensitive | Docker container, deny-by-default networking, no host volume mounts | Financial, security, external API access |
+| 3 — High-security | E2B Firecracker microVM (hardware-level) | External code execution, untrusted MCP servers, public-facing |
+
+**E2B Firecracker microVMs** (`e2b-dev/E2B`, 11.6k stars): hardware-level isolation, clean filesystem, zero shared state with host. Even a successful command injection is contained in a throwaway environment. See [[review-pdf-agentic-ecosystem]].
+
+**Mission brief must specify** which isolation tier the clone requires.
 
 ## ⚠️ Clone Environment Bootstrap Requirement
 

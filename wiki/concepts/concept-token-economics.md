@@ -49,6 +49,19 @@ The Brain routes tasks using a data-driven matrix, not assumptions. Populated by
 
 **Opus reality check (from Gemini):** Sonnet often matches or beats Opus for coding, tool-calling, and structured output. Reserve Opus for deep logical synthesis, creative writing, and highly ambiguous planning. Verify empirically via V0.1 cascade.
 
+## Code Mode — 98.7% Token Reduction
+
+> Source: [[review-pdf-agentic-ecosystem]] | Anthropic engineering blog
+
+Traditional tool calling loads every tool's full JSON schema into context upfront. With many tools this overwhelms the window. **Code Mode** (Code Execution with MCP) treats MCP servers as code APIs — the agent writes small code snippets to interact with tools:
+
+| Approach | Tokens for same task | Ratio |
+|----------|---------------------|-------|
+| Traditional (all schemas loaded) | 150,000 | 1× |
+| Code Mode (API def + selected tools only) | 2,000 | **75×** cheaper |
+
+**Rule for this architecture:** [[segment-brain]] interacts with MCP servers via Code Mode by default. Never load full tool schemas into context unless a specific call requires it. See [[tool-mcp-protocol]].
+
 ## Model Split (Gemini recommendation)
 
 Brain = cloud API only. Everything else (Clones, Janitor, Forge monitoring, User Agent) = local wherever possible. This collapses operational cost to near zero, turning multi-agent overhead into a hardware constraint rather than a financial one.

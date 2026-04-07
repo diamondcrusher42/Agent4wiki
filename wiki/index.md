@@ -1,8 +1,8 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-07
-> Total pages: 38
-> Sources ingested: 7 repos/articles + 1 architecture session + 6 external reviews + 1 implementation plan
+> Total pages: 40
+> Sources ingested: 8 repos/articles + 1 architecture session + 6 external reviews + 1 implementation plan + 1 research PDF
 
 ## Segments
 
@@ -38,6 +38,7 @@
 - [[tool-hstack]] — Health specialist agents. Subagent separation pattern.
 - [[tool-ai-personal-os]] — Onboarding, daily logging, Zettelkasten, system review.
 - [[tool-keychain-agent]] — Digital keychain. Encrypted vault, scoped injection, leak scanning.
+- [[tool-mcp-protocol]] — Model Context Protocol. Host-client-server triad, Code Mode (98.7% token reduction), top skills, security threats.
 
 ## Entities
 
@@ -56,6 +57,7 @@
 - [[review-gemini-review3]] — Gemini review 3: plan validated as bulletproof + 4 tweaks (async MemoryStore, regex classifier, worktree teardown, Phase 5 as Forge seed).
 - [[review-opus-review1]] — Opus deep-dive: 5 new blind spots, 3 conflicts, repo structure, productization, autonomy levels, 6 upgrades, 6 quick wins.
 - [[review-gemini-review4]] — Gemini feasibility check: engine/state repo separation, Docker sandboxing, clone bootstrap, irreversible action gate.
+- [[review-pdf-agentic-ecosystem]] — Research PDF: MCP as native protocol, Code Mode 98.7% token reduction, E2B microVMs, credential proxying, MCP security threats.
 
 ## Log
 
