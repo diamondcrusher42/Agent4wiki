@@ -2,11 +2,13 @@
 // Phase 1 deliverable — MemoryStore abstraction layer (V2)
 // Changelog: Added MemoryTier enum, writeSummary, audit methods, InteractionDigest type
 //
-// LANGUAGE NOTE (from Opus review 2): Python is recommended for the core agents/adapters
-// (better ecosystem compatibility with MemPalace, BitNet, and most AI tooling).
-// If staying TypeScript, access MemPalace via its 19-tool MCP server (MCP client adapter),
-// NOT via direct import — MemPalace is Python and cannot be imported natively in TS.
-// TypeScript is appropriate for: web dashboard, Telegram bot with Node.js runtime.
+// LANGUAGE DECISION (2026-04-08 — locked): TypeScript for Core Orchestrator.
+// See wiki/decisions/decision-typescript-python.md
+//
+// MemPalace adapter = MCP client (not direct import — MemPalace is Python).
+// Access via MemPalace's 19-tool MCP server over JSON-RPC / stdio.
+// MCP enforces the MemoryStore abstraction physically — if MemPalace crashes,
+// Core catches a timeout, not a process crash. This is the intended architecture.
 
 // Tier enum — use this instead of raw strings to prevent silent typo failures
 export enum MemoryTier {

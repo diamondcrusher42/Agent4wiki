@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-07
-> Total pages: 44
+> Total pages: 45
 > Sources ingested: 8 repos/articles + 1 architecture session + 8 external reviews + 1 implementation plan + 1 research PDF + 1 template
 
 ## Templates
@@ -54,6 +54,7 @@
 
 - [[decision-six-segments]] — Why six segments (original — superseded).
 - [[decision-seven-segments]] — Why seven: The Bridge earns segment status. Output reliability = execution reliability.
+- [[decision-typescript-python]] — TypeScript Core (User Agent/Brain/Janitor/Keychain) + Python Clones. MCP as firewall. Locked.
 - [[decision-brain-never-executes]] — The Brain plans. Period.
 - [[decision-forge-independence]] — Why the Forge never touches production directly.
 - [[review-architecture-audit]] — Full critical review: what works, what breaks, what's untested.
