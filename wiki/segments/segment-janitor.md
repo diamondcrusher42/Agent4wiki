@@ -40,6 +40,18 @@ From [[tool-hstack]] patterns:
 | UPDATE | Stale claims, outdated references |
 | CHALLENGE | "Why does this exist? Can it be simpler?" |
 
+## ⚠️ Known Risk: Ping-Pong Deadlock
+
+> Flagged by: [[review-gemini-review1]]
+
+The Janitor's "doubt everything" mandate creates a deadlock risk. If a Clone completes a mission and the Janitor rejects the output, the Brain re-delegates. Without a circuit breaker, the Brain-Clone-Janitor triangle retries indefinitely, burning tokens with no resolution.
+
+**Required safeguards:**
+- Max retry count per mission (default: 3) before escalating to user
+- Janitor directives must be tiered: BLOCK (re-delegate) vs SUGGEST (accept + flag for improvement)
+- Rejection reason must be specific enough for the Brain to write a materially different brief — vague rejections must be treated as SUGGEST, not BLOCK
+- Circuit breaker: if same mission fails N times with identical Janitor pattern, route to human
+
 ## Token Strategy
 
 [[tool-bitnet]] on CPU for routine passes. Cloud API for judgment calls. Budget allocated to thoroughness, not frequency.

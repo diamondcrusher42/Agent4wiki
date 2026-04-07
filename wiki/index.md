@@ -1,8 +1,8 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-07
-> Total pages: 28
-> Sources ingested: 7 repos/articles + 1 architecture session
+> Total pages: 30
+> Sources ingested: 7 repos/articles + 1 architecture session + 2 external reviews
 
 ## Segments
 
@@ -47,6 +47,7 @@
 - [[decision-brain-never-executes]] — The Brain plans. Period.
 - [[decision-forge-independence]] — Why the Forge never touches production directly.
 - [[review-architecture-audit]] — Full critical review: what works, what breaks, what's untested.
+- [[review-gemini-review1]] — Gemini external review: ping-pong deadlock, RTT latency, filesystem scope attack vector.
 
 ## Log
 
