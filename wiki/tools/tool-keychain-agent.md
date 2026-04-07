@@ -8,6 +8,47 @@ Public bot (kids coding) runs with --isolated flag: sandboxed, no parent env lea
 
 Repo scaffolded and ready to push. Python 3.9+, cryptography, argon2-cffi, pyyaml, watchdog, click.
 
+## KeychainManager — Phase 2 Deliverable
+
+> Code: `core/keychain/manager.ts`
+> Core philosophy: **Just-In-Time (JIT) Scoped Injection**
+
+### Clone Lifecycle Integration
+
+```
+Brain plans task → requests clone spawn
+  ↓
+KeychainManager.provisionEnvironment(worktreePath, requiredKeys)
+  → writes ephemeral .env to worktree ONLY
+  → explicit deny: any key not in requiredKeys is NOT provisioned
+  ↓
+Clone executes — reads local .env, does its job
+  ↓
+Clone outputs JSON handshake (COMPLETED / FAILED_*)
+  ↓
+KeychainManager.revokeEnvironment(worktreePath)
+  → deletes ephemeral .env
+  → runs scanForLeaks() over modified files
+  → returns false → Janitor issues BLOCK (credential leak = reject commit)
+  → returns true → safe to merge
+```
+
+### Key Methods
+
+| Method | Called by | Action |
+|--------|----------|--------|
+| `provisionEnvironment(path, keys)` | Brain (pre-clone) | Writes scoped ephemeral .env to worktree |
+| `revokeEnvironment(path)` | Janitor (post-clone) | Deletes .env, runs leak scanner, returns safe/unsafe |
+| `scanForLeaks(path)` | revokeEnvironment | Regex sweep: vault values vs. modified file contents |
+| `loadMasterVault()` | Constructor | Decrypts AES-256-GCM vault from `state/keychain/` |
+
+### Kids Bot Isolation (Special Case)
+
+Planet Zabave / kids coding bot is public-facing → high prompt injection risk. Handled differently:
+- Separate vault: `state/keychain/kids/vault.enc` — completely isolated `masterVault`
+- Zero cross-pollination: even if a user prompt-injects the bot into printing env vars, main business keys (Anthropic master key, billing, Stripe) simply do not exist in its memory space
+- `--isolated` flag at launch prevents any parent env leakage
+
 ## ⚠️ Credential Proxying Upgrade
 
 > Source: [[review-pdf-agentic-ecosystem]]
