@@ -38,6 +38,10 @@ Source: GitHub repo README. Key takeaways: 1.58-bit models, 2.37x-6.17x speedup 
 
 Source: Architecture session output. Key takeaways: encrypted vault (AES-256-GCM + Argon2id), scoped injection per-agent, leak scanning with pattern matching, audit logging, rotation scheduler, fallback chains, droids as lightweight watchpost monitors. Pages created/updated: [[tool-keychain-agent]], [[concept-fallback-chains]], [[segment-user-agent]].
 
+## [2026-04-07] ingest | Gemini-review2-Forge-v01.md (Forge benchmarking strategy)
+
+Source: raw/Gemini-review2-Forge-v01.md. Reviewer: Gemini. Key insight: extract benchmarking as Forge V0.1 — ship immediately instead of waiting for full Phase 7. Model cascade: Sonnet baseline → Haiku → Ollama local (up to 70B on RTX 3090) → BitNet 2B → Opus. Grading framework: unit tests → Sonnet-as-LLM-judge → human review. Output: model routing matrix for Brain dispatch. Opus reality check: Sonnet often beats Opus for coding/tool-calling/formatting. Pages created: [[plan-forge-v01-benchmarking]]. Pages patched: [[segment-forge]] (V0.1 bootstrapping section), [[concept-token-economics]] (routing matrix + Opus reality check), [[plan-implementation-v4]] (Phase 5 updated to include Forge V0.1). Index updated (32 pages).
+
 ## [2026-04-07] ingest | implementation-plan-v4.md
 
 Source: raw/implementation-plan-v4.md. 7-phase plan sequenced by strict dependency order (Memory → Keychain → User Agent → Brain → Clones → Janitor → Forge). Incorporates all findings from [[review-architecture-audit]] and [[review-gemini-review1]]: MemoryStore interface abstraction, filesystem allowedPaths enforcement per worktree, complexity classifier for tiered routing, Janitor directive tiers (BLOCK/SUGGEST/NOTE), circuit breaker (3-retry limit), quality grading design deferred to Phase 6, Forge deferred to Phase 7. Deferred items listed. Immediate next actions defined. Pages created: [[plan-implementation-v4]]. Index updated (31 pages).

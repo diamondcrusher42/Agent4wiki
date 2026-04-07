@@ -6,6 +6,14 @@
 
 Force driver for perpetual improvement. Shadows every process, benchmarks independently, diagnoses failures, predicts problems, builds better tools, and proposes replacements. The system never stops getting better.
 
+## Forge V0.1 — Bootstrapping with Benchmarking First
+
+> See [[plan-forge-v01-benchmarking]] for full details.
+
+Before the full Forge is built (Phase 7), ship **Forge V0.1** as a single benchmarking script in Phase 5. Run every task type through the model cascade: Sonnet → Haiku → Ollama (up to 70B local) → BitNet 2B → Opus. Sonnet defines the baseline and acts as LLM-as-judge for scoring. Output: `forge/capabilities/map.json` — the model routing matrix [[segment-brain]] uses for task dispatch.
+
+This directly solves two problems from [[review-architecture-audit]]: Forge vaporware critique, and quality grading unsolved. The three-criterion grading framework (unit tests → LLM-as-judge → human review) produced by V0.1 is reused by [[segment-janitor]] in Phase 6 and the full Forge in Phase 7.
+
 ## Core Mechanism: Shadow Benchmarking
 
 See [[concept-shadow-benchmarking]].

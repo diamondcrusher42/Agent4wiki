@@ -103,9 +103,9 @@
 
 ---
 
-## Phase 5 — Clones
+## Phase 5 — Clones + Forge V0.1
 
-**Blocks:** Janitor (needs execution history to audit). Forge (needs massive history).
+**Blocks:** Janitor (needs execution history to audit). Full Forge (needs massive history + grading system).
 
 ### Key deliverables
 - Clone lifecycle: create → inject → launch → execute → commit → signal → cleanup
@@ -117,6 +117,12 @@
 - Clone output: structured result + decision log + wiki atomization candidates
 - Atomize pass: output → Zettelkasten notes → Soul.md voice → Memory
 - **A/B template tracking**: 2 variants per skill, track first-pass acceptance rate
+- **Forge V0.1 — benchmarking script** (runs in parallel with clone buildout):
+  - Define 5-10 representative task types
+  - Cascade: Sonnet baseline → Haiku → Ollama local (up to 70B) → BitNet 2B → Opus
+  - Grading: unit tests → Sonnet-as-judge → human review
+  - Output: `forge/capabilities/map.json` (model routing matrix)
+  - See [[plan-forge-v01-benchmarking]]
 
 ### Success criteria
 - Code clone diff passes QA review ≥ 70% first attempt
