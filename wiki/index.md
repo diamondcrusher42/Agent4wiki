@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-07
-> Total pages: 48
+> Total pages: 49
 > Sources ingested: 8 repos/articles + 1 architecture session + 8 external reviews + 1 implementation plan + 1 research PDF + 1 template
 
 ## Templates
@@ -70,6 +70,7 @@
 - [[decision-directory-scaffold]] — Canonical repo directory structure. Implementation status table. Conflict notes: brain/ (Python dispatcher) vs core/brain/ (TS planner); templates/ migration path.
 - [[review-opus-review3]] — Janitor + dispatcher integration: detectStructuralIssue V2, Forge JSONL logging, SUGGEST retry loop, WikiScythe 3 operations, dispatcher→Janitor lifecycle.
 - [[review-opus-review4]] — Directory + gitignore: events/ dir, keychain/config/ YAMLs, Python artifacts, worktrees-inside-repo note (deferred), Soul.md two-file split (deferred).
+- [[review-gemini-review6]] — Phase 4/5/7 file structure: Brain split (planner/dispatcher/prompt_builder), Clones lifecycle/ subdir + clone_worker, Forge 4 files (shadow_runner/evaluator/ratchet/metrics_db).
 
 ## Log
 
