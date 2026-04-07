@@ -1,0 +1,28 @@
+# Node/TypeScript
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Master Credentials (Redundancy check)
+.env
+*.pem
+*.key
+
+# ==========================================
+# THE STATE VAULT (CRITICAL SECURITY ZONE)
+# ==========================================
+# Ignore all files inside state/ recursively...
+state/**
+# ...but preserve directory structure (directories are always git-tracked)
+!state/**/
+# ...and keep the .gitkeep sentinels so fresh clones get the correct folder layout
+!state/**/.gitkeep
+
+# Ensure Clones don't accidentally commit their injected .env files
+# if they somehow bypass the worktree sandbox (Defense in Depth)
+state/worktrees/*/.env
