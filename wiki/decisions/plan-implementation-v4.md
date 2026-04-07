@@ -96,7 +96,8 @@
 - **Inter-agent event protocol** — JSON-lines event log per channel (`events/brain-to-clones.jsonl`, `janitor-alerts.jsonl`, `clone-completions.jsonl`, `droid-alerts.jsonl`). Single writer per channel. See [[concept-inter-agent-protocol]]
 - **`brain/dispatcher.py`** — lightweight Python script (~50 lines) watches `events/` directory, launches Brain/Clone sessions from task files and droid alerts. Missing glue between always-on and session-based components. See [[concept-dispatcher]]
 - **Single-writer rule enforced**: only Brain writes to `wiki/index.md`, only User Agent writes to `user/state.json`, clones write only to `clones/results/{clone-id}/`
-- TASK.md format finalized: objective, context pages, constraints, output format, success criteria, credential capabilities
+- TASK.md format finalized: objective, context pages, constraints, output format, success criteria, credential capabilities, **bootstrap block** (env setup commands before clone begins — `npm install`/`pip install`/etc.)
+- **Action classification in every brief**: reversible (BLOCK/SUGGEST/NOTE applies) vs. irreversible/external (mandatory human gate before execution)
 - Soul.md auto-injected into every TASK.md
 - Brain session startup sequence validated: `/new` → index.md → state.json → AAAK wake-up → plan
 

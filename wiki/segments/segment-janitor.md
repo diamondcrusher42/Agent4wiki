@@ -52,6 +52,21 @@ The Janitor's "doubt everything" mandate creates a deadlock risk. If a Clone com
 - Rejection reason must be specific enough for the Brain to write a materially different brief — vague rejections must be treated as SUGGEST, not BLOCK
 - Circuit breaker: if same mission fails N times with identical Janitor pattern, route to human
 
+## ⚠️ Irreversible Actions — Mandatory Human Gate
+
+> Flagged by: [[review-gemini-review4]]
+
+The BLOCK/SUGGEST/NOTE tiers handle Janitor rejection loops. But actions with external side effects (dropping production databases, mass email sends, payroll processing, public posts) cannot be retried on failure — they need a hard gate **before execution**.
+
+**Action classification required at mission brief time:**
+
+| Type | Examples | Gate |
+|------|----------|------|
+| Reversible | Code changes, draft docs, local edits | BLOCK/SUGGEST/NOTE tiers apply |
+| Irreversible / external | Money, mass sends, public posts, prod data destruction | Mandatory "Escalate to Human" via Telegram before execution |
+
+Clones must not proceed past an irreversible action without explicit human approval. The Janitor tags mission briefs with action classification at dispatch time.
+
 ## ⚠️ Janitor vs. Forge Territory Rule
 
 > Flagged by: [[review-opus-review1]]
