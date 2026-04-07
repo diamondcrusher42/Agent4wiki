@@ -57,3 +57,7 @@ Deep challenge of all 6 segments, 10 concepts, 7 tools, 3 decisions. 7 strengths
 ## [2026-04-07] synthesis | Six-segment architecture finalized
 
 Combined all sources into unified architecture. Added Segment 6 (The Forge) for perpetual improvement. Established 12 core architecture rules. Defined 5-phase implementation plan. Pages created: [[segment-forge]], [[concept-shadow-benchmarking]], [[decision-six-segments]], [[decision-brain-never-executes]], [[decision-forge-independence]].
+
+## [2026-04-07] ingest | Gemini-review3-Implementation.md (implementation plan validation)
+
+Source: raw/Gemini-review3-Implementation.md. Reviewer: Gemini. Overall verdict: plan is rock-solid. 4 strategic tweaks: (1) MemoryStore interface must use async-first signatures — cloud swap could block execution thread, Phase 3 RTT classifier must account for retrieval latency; (2) Complexity classifier MVP = heuristics/regex only — LLM classifier re-introduces the latency it was designed to eliminate; (3) Worktree creation script must include automated teardown/archival on Janitor approval — orphaned directories fill disk; (4) Phase 5 A/B tracking + model splits = manually building the Forge Capability Map — treat as dual-purpose from day one. Pages created: [[review-gemini-review3]]. Pages patched: [[plan-implementation-v4]] (Phase 1 async note, Phase 3 regex-only rule, Phase 4 teardown deliverable). Index updated (33 pages).

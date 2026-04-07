@@ -25,6 +25,7 @@
 - `memory/raw/`, `memory/wiki/`, `memory/palace/` structure
 - [[tool-mempalace]] installed, MCP server running
 - **`MemoryStore` interface abstraction** — nothing calls MemPalace directly
+  - ⚠️ Design with **async-first signatures** — if MemPalace is swapped for a cloud vector DB, retrieval latency could block the execution thread; the Phase 3 RTT classifier must account for this (see [[review-gemini-review3]])
 - L0/L1/L2/L3 loading tiers tested, wake-up cost ≤ 170 tokens verified ([[concept-aaak-compression]])
 - CLAUDE.md wiki conventions locked
 
@@ -34,6 +35,7 @@
 
 ### Addresses
 - MemPalace single external dep → [[review-architecture-audit]]
+- Async latency contract → [[review-gemini-review3]]
 
 ---
 
@@ -68,6 +70,7 @@
 - `user/state.json`, `user/profile.md`, `user/soul.md` (via AI Personal OS onboarding)
 - Summary Pipeline operational: every interaction → structured digest ([[concept-summary-pipeline]])
 - **Complexity classifier at entry**: Direct / Brain-only / Full pipeline routing ([[concept-token-economics]])
+  - ⚠️ MVP classifier = **heuristics/regex only** — do NOT use an LLM (adds latency back in). Keywords like `"search"`, `"summarize"`, `"run"`, `"fetch"` → Brain; otherwise → direct (see [[review-gemini-review3]])
 - User Agent runs as BitNet 2B daemon — near-zero energy, never resets
 
 ### Success criteria
@@ -89,6 +92,7 @@
 - `brain/registry.json`, `brain/plan.json`
 - **Manual mission brief templates** for all 8 skill types (code, docs, research, devops, qa, health, accounting, telegram) — `brain/templates/{skill}.md`
 - Git worktree creation extended with `allowedPaths` from Phase 2
+- **Worktree teardown script** — create and cleanup are a pair; Janitor approval triggers teardown signal → worktree archived to `clones/archive/` or deleted. Orphaned directories fill disk fast (see [[review-gemini-review3]])
 - TASK.md format finalized: objective, context pages, constraints, output format, success criteria, credential capabilities
 - Soul.md auto-injected into every TASK.md
 - Brain session startup sequence validated: `/new` → index.md → state.json → AAAK wake-up → plan
