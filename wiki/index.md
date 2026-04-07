@@ -1,8 +1,8 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-07
-> Total pages: 30
-> Sources ingested: 7 repos/articles + 1 architecture session + 2 external reviews
+> Total pages: 31
+> Sources ingested: 7 repos/articles + 1 architecture session + 2 external reviews + 1 implementation plan
 
 ## Segments
 
@@ -48,6 +48,7 @@
 - [[decision-forge-independence]] — Why the Forge never touches production directly.
 - [[review-architecture-audit]] — Full critical review: what works, what breaks, what's untested.
 - [[review-gemini-review1]] — Gemini external review: ping-pong deadlock, RTT latency, filesystem scope attack vector.
+- [[plan-implementation-v4]] — 7-phase build plan sequenced by dependency. Phase 1=Memory, Phase 7=Forge.
 
 ## Log
 

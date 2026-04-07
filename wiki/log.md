@@ -38,6 +38,10 @@ Source: GitHub repo README. Key takeaways: 1.58-bit models, 2.37x-6.17x speedup 
 
 Source: Architecture session output. Key takeaways: encrypted vault (AES-256-GCM + Argon2id), scoped injection per-agent, leak scanning with pattern matching, audit logging, rotation scheduler, fallback chains, droids as lightweight watchpost monitors. Pages created/updated: [[tool-keychain-agent]], [[concept-fallback-chains]], [[segment-user-agent]].
 
+## [2026-04-07] ingest | implementation-plan-v4.md
+
+Source: raw/implementation-plan-v4.md. 7-phase plan sequenced by strict dependency order (Memory → Keychain → User Agent → Brain → Clones → Janitor → Forge). Incorporates all findings from [[review-architecture-audit]] and [[review-gemini-review1]]: MemoryStore interface abstraction, filesystem allowedPaths enforcement per worktree, complexity classifier for tiered routing, Janitor directive tiers (BLOCK/SUGGEST/NOTE), circuit breaker (3-retry limit), quality grading design deferred to Phase 6, Forge deferred to Phase 7. Deferred items listed. Immediate next actions defined. Pages created: [[plan-implementation-v4]]. Index updated (31 pages).
+
 ## [2026-04-07] ingest | Gemini-review1.md (external LLM review)
 
 Source: raw/Gemini-review1.md. Reviewer: Gemini. Key new findings not in prior audit: (1) Ping-Pong Deadlock — Janitor rejection loops with no circuit breaker burn tokens indefinitely; (2) RTT latency — full 6-segment pipeline for simple tasks is wasteful, needs fast-path routing at User Agent; (3) Filesystem scope attack — clone working directory at ~/+ gives rogue clone access to .claude.json, keychain tokens, AppData. Requires --allowed-dirs enforcement per worktree. Also reinforced: Brain Never Executes, Janitor, Forge ratchet. Synergies reinforced: Git Worktrees + parallel PRs, Brain=cloud/rest=local model split. Pages created: [[review-gemini-review1]]. Pages that need updates: [[segment-janitor]] (deadlock risk), [[concept-token-economics]] (fast-path routing), [[concept-git-worktrees]] (allowed-dirs enforcement), [[tool-keychain-agent]] (filesystem scope gap). Index updated.
