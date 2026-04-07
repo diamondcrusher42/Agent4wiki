@@ -58,6 +58,10 @@ Deep challenge of all 6 segments, 10 concepts, 7 tools, 3 decisions. 7 strengths
 
 Combined all sources into unified architecture. Added Segment 6 (The Forge) for perpetual improvement. Established 12 core architecture rules. Defined 5-phase implementation plan. Pages created: [[segment-forge]], [[concept-shadow-benchmarking]], [[decision-six-segments]], [[decision-brain-never-executes]], [[decision-forge-independence]].
 
+## [2026-04-08] ingest | TASK_template.md (Master Code Clone Template — Phase 4 first deliverable)
+
+Source: raw/TASK_template.md. Author: Gemini. First concrete Phase 4 artifact: the Master Code Clone Mission Brief template. Injection variables: SOUL_MD, ALLOWED_PATH, BRAIN_DELEGATED_TASK. Execution lifecycle: INTAKE → DISCOVER (Repomix mandatory) → DECOMPOSE → EXECUTE (tests required) → AUDIT. Janitor handshake: structured JSON output (status/files_modified/tests_passed/janitor_notes) — Janitor parses only JSON, no full trace needed. Template stored at templates/code-clone-TASK.md. 7 remaining skill templates pending (docs, research, devops, qa, health, accounting, telegram). Pages updated: [[concept-clone-skill-templates]] (V1 template documented, tracker table added, design decisions explained). Index updated.
+
 ## [2026-04-08] ingest | Gemini-review5-On-the-skills-research.md (synthesis + Phase 4 action mapping)
 
 Source: raw/Gemini-review5-On-the-skills-research.md. Reviewer: Gemini. Signal: "Research is complete, start building Phase 4." 3 skill→architecture mappings: (1) Sequential Thinking → Brain must complete a Sequential Thinking pass before writing any Mission Brief, reasoning chain is audited; (2) Repomix → mandatory first step in every coding clone bootstrap (`repomix --output context.md`), never skip; (3) Absolute-Human board.md syntax → Janitor audit log format (INTAKE→DISCOVER→PLAN→EXECUTE→VERIFY→CONVERGE state machine, append-only). Pages created: [[review-gemini-review5]]. Pages patched: [[concept-mission-briefs]] (Repomix mandate + Sequential Thinking pre-pass), [[segment-janitor]] (audit board format). Index updated (41 pages).

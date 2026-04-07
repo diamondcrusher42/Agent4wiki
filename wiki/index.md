@@ -2,7 +2,11 @@
 
 > Last updated: 2026-04-07
 > Total pages: 41
-> Sources ingested: 8 repos/articles + 1 architecture session + 7 external reviews + 1 implementation plan + 1 research PDF
+> Sources ingested: 8 repos/articles + 1 architecture session + 7 external reviews + 1 implementation plan + 1 research PDF + 1 template
+
+## Templates
+
+- `templates/code-clone-TASK.md` — Code clone mission brief V1. Injection variables, Janitor handshake JSON, Repomix trap. See [[concept-clone-skill-templates]].
 
 ## Segments
 
