@@ -6,6 +6,41 @@
 
 The user's digital representative. A privacy-first virtual clone that holds all credentials, represents the user's interests, and maintains awareness of everything without burning context. This is NOT a general-purpose assistant.
 
+## Phase 3 Deliverables — Implementation
+
+> Code: `core/routing/classifier.ts` + `core/user_agent/agent.ts` + `state/user_agent/state.json`
+
+### ComplexityClassifier — Regex Router (No LLM)
+
+```typescript
+classify(prompt) → DIRECT | BRAIN_ONLY | FULL_PIPELINE
+```
+
+MVP: keyword heuristics, NOT an LLM — no API call before the system starts working.
+
+| Route | Trigger | Latency | Cost |
+|-------|---------|---------|------|
+| DIRECT | Conversational, no keyword match | <1s | Zero (BitNet 2B local) |
+| BRAIN_ONLY | plan / explain / summarize / research / compare | 2-5s | Sonnet API |
+| FULL_PIPELINE | build / deploy / scrape / run / execute / commit | 10-60s+ | Full stack |
+
+### UserAgent — Top-Level Orchestrator
+
+Receives every user message. Classifies → dispatches to the right path. Compresses conversation history every 10 turns via Summary Pipeline (BitNet 2B local, zero API cost). Writes to `state/user_agent/state.json` (≤500 tokens total).
+
+### state.json — The Compact State Object
+
+```json
+{
+  "last_updated": "ISO timestamp",
+  "current_intent": "What user is working on now",
+  "active_worktrees": ["clone-xyz"],
+  "open_items": ["unresolved task 1"],
+  "recent_context_summary": "Compressed from last N turns",
+  "confidence_score": 0.95
+}
+```
+
 ## Token Strategy
 
 Receives SUMMARIES of interactions via [[concept-summary-pipeline]], never raw dumps. Maintains a compact state object (<500 tokens) always ready to inject. Updates incrementally. Runs on [[tool-bitnet]] 2B on CPU as an always-on daemon — near-zero energy cost.

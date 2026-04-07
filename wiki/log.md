@@ -58,6 +58,10 @@ Deep challenge of all 6 segments, 10 concepts, 7 tools, 3 decisions. 7 strengths
 
 Combined all sources into unified architecture. Added Segment 6 (The Forge) for perpetual improvement. Established 12 core architecture rules. Defined 5-phase implementation plan. Pages created: [[segment-forge]], [[concept-shadow-benchmarking]], [[decision-six-segments]], [[decision-brain-never-executes]], [[decision-forge-independence]].
 
+## [2026-04-08] ingest | User_agent_template.md (Phase 3 first deliverable — ComplexityClassifier + UserAgent)
+
+Source: raw/User_agent_template.md. Phase 3 deliverable: ComplexityClassifier (core/routing/classifier.ts) + UserAgent (core/user_agent/agent.ts) + state schema (state/user_agent/state.json). ComplexityClassifier: regex heuristics only (no LLM — per review-gemini-review3), routes DIRECT/BRAIN_ONLY/FULL_PIPELINE. UserAgent: top-level orchestrator, classifies every prompt, dispatches to path, compresses history every 10 turns via Summary Pipeline (BitNet 2B local). state.json schema: last_updated/current_intent/active_worktrees/open_items/recent_context_summary/confidence_score — target ≤500 tokens. Pages updated: [[segment-user-agent]] (Phase 3 deliverables section added with routing table and state schema).
+
 ## [2026-04-08] decision | TypeScript Core + Python Clones — language architecture locked
 
 Source: Gemini recommendation (Telegram message), filed after Opus review 2 flagged the language decision. Decision: TypeScript/Node.js for Core Orchestrator (User Agent, Brain, Janitor, Keychain) — async I/O superiority, React dashboard synergy, MCP as physical firewall. Python exclusively for Clones — native AI/ML tooling, MemPalace, BitNet, data science ecosystem. MCP is transport-agnostic so MemPalace adapter is a TypeScript MCP client calling MemPalace's 19-tool server via JSON-RPC. Dispatcher and planner renamed from .py to .ts. Clone bootstraps remain Python per worktree. Pages created: [[decision-typescript-python]]. Files updated: core/memory_store/interface.ts (language decision comment updated from tentative to locked). Index: 45 pages.
