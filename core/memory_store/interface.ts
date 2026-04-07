@@ -1,12 +1,45 @@
 // core/memory_store/interface.ts
-// Phase 1 deliverable — MemoryStore abstraction layer
-// Nothing outside this directory calls MemPalace directly.
+// Phase 1 deliverable — MemoryStore abstraction layer (V2)
+// Changelog: Added MemoryTier enum, writeSummary, audit methods, InteractionDigest type
+//
+// LANGUAGE NOTE (from Opus review 2): Python is recommended for the core agents/adapters
+// (better ecosystem compatibility with MemPalace, BitNet, and most AI tooling).
+// If staying TypeScript, access MemPalace via its 19-tool MCP server (MCP client adapter),
+// NOT via direct import — MemPalace is Python and cannot be imported natively in TS.
+// TypeScript is appropriate for: web dashboard, Telegram bot with Node.js runtime.
+
+// Tier enum — use this instead of raw strings to prevent silent typo failures
+export enum MemoryTier {
+  L0_WAKE   = 'L0_WAKE',    // ~50-170 tokens: identity + critical facts only
+  L1_RECENT = 'L1_RECENT',  // recent session context
+  L2_DOMAIN = 'L2_DOMAIN',  // domain-specific room recall for current task
+  L3_DEEP   = 'L3_DEEP'     // full semantic search across all closets
+}
 
 export interface MemoryMetadata {
   source_id: string;      // Which Clone or session wrote this?
   timestamp: string;      // ISO format for the Janitor's expiration checks
   tags: string[];         // e.g., ["architecture", "code_review", "planning"]
   valid_until?: string;   // Optional expiration date for temporary context
+}
+
+// Structured digest from User Agent summary pipeline
+// Format matches architecture spec: {timestamp, intent, entities_mentioned, outcome, open_items, confidence}
+export interface InteractionDigest {
+  timestamp: string;
+  intent: string;
+  entities_mentioned: string[];
+  outcome: string;
+  open_items: string[];
+  confidence: number; // 0-1
+}
+
+// Structured report from Janitor audit pass
+export interface AuditReport {
+  contradictions: Array<{page_a: string, page_b: string, conflict: string}>;
+  orphan_pages: string[];
+  stale_entries: Array<{id: string, age_days: number}>;
+  timestamp: string;
 }
 
 export interface MemoryStore {
@@ -17,17 +50,25 @@ export interface MemoryStore {
 
   /**
    * INGEST: Stores a new concept or log into the memory vault.
+   * Used by Clones and Brain after completing a task.
    */
   write(content: string, metadata: MemoryMetadata): Promise<string>; // Returns Memory ID
 
   /**
-   * RETRIEVE: Pulls exact context using the L0-L3 tier system (max ~170 tokens for L0).
-   * @param tier 'L0_WAKE' | 'L1_RECENT' | 'L2_DOMAIN' | 'L3_DEEP'
+   * SUMMARY PIPELINE: Stores a structured interaction digest from the User Agent.
+   * Separate from write() to enforce the InteractionDigest schema.
    */
-  readContext(tier: string, query?: string): Promise<string>;
+  writeSummary(digest: InteractionDigest): Promise<string>; // Returns Memory ID
 
   /**
-   * SEARCH: Semantic similarity search for Clones to use during [DISCOVER] phases.
+   * RETRIEVE: Pulls context using the L0-L3 tier system.
+   * L0_WAKE must return ≤170 tokens (AAAK compression enforced in adapter).
+   * Uses MemoryTier enum — no raw strings.
+   */
+  readContext(tier: MemoryTier, query?: string): Promise<string>;
+
+  /**
+   * SEARCH: Semantic similarity search for Clones during [DISCOVER] phases.
    */
   search(query: string, limit?: number): Promise<Array<{content: string, score: number}>>;
 
@@ -35,4 +76,11 @@ export interface MemoryStore {
    * PRUNE: Used exclusively by the Janitor segment to delete stale or contradicted memory.
    */
   delete(memoryId: string): Promise<boolean>;
+
+  /**
+   * AUDIT: Janitor lint pass — finds contradictions, orphans, and stale entries.
+   * Returns a structured report for the Janitor to act on.
+   * The Janitor should not implement its own search-and-analyze logic.
+   */
+  audit(olderThan?: Date): Promise<AuditReport>;
 }

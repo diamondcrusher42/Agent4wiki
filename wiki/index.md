@@ -1,8 +1,8 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-07
-> Total pages: 43
-> Sources ingested: 8 repos/articles + 1 architecture session + 7 external reviews + 1 implementation plan + 1 research PDF + 1 template
+> Total pages: 44
+> Sources ingested: 8 repos/articles + 1 architecture session + 8 external reviews + 1 implementation plan + 1 research PDF + 1 template
 
 ## Templates
 
@@ -62,6 +62,7 @@
 - [[plan-forge-v01-benchmarking]] — Forge V0.1: model benchmarking cascade. Sonnet→Haiku→Ollama→BitNet→Opus. Produces routing matrix.
 - [[review-gemini-review3]] — Gemini review 3: plan validated as bulletproof + 4 tweaks (async MemoryStore, regex classifier, worktree teardown, Phase 5 as Forge seed).
 - [[review-opus-review1]] — Opus deep-dive: 5 new blind spots, 3 conflicts, repo structure, productization, autonomy levels, 6 upgrades, 6 quick wins.
+- [[review-opus-review2]] — Opus code review: TASK template V2, MemoryStore V2 (enum+writeSummary+audit), Keychain V2 (spawn injection, try/finally). Language decision flagged.
 - [[review-gemini-review4]] — Gemini feasibility check: engine/state repo separation, Docker sandboxing, clone bootstrap, irreversible action gate.
 - [[review-pdf-agentic-ecosystem]] — Research PDF: MCP as native protocol, Code Mode 98.7% token reduction, E2B microVMs, credential proxying, MCP security threats.
 - [[review-gemini-review5]] — Gemini synthesis: skills → architecture mappings. Sequential Thinking for Brain, Repomix for coding clones, Absolute-Human format for Janitor audit logs. "Start building."
