@@ -46,6 +46,7 @@
 - [[decision-six-segments]] — Why six segments, not three or ten.
 - [[decision-brain-never-executes]] — The Brain plans. Period.
 - [[decision-forge-independence]] — Why the Forge never touches production directly.
+- [[review-architecture-audit]] — Full critical review: what works, what breaks, what's untested.
 
 ## Log
 

@@ -38,6 +38,10 @@ Source: GitHub repo README. Key takeaways: 1.58-bit models, 2.37x-6.17x speedup 
 
 Source: Architecture session output. Key takeaways: encrypted vault (AES-256-GCM + Argon2id), scoped injection per-agent, leak scanning with pattern matching, audit logging, rotation scheduler, fallback chains, droids as lightweight watchpost monitors. Pages created/updated: [[tool-keychain-agent]], [[concept-fallback-chains]], [[segment-user-agent]].
 
+## [2026-04-07] review | Full architecture audit — critical review filed
+
+Deep challenge of all 6 segments, 10 concepts, 7 tools, 3 decisions. 7 strengths confirmed, 6 critical weak spots (🔴), 6 significant risks (🟡), 5 synergies outlined, build order bottlenecks mapped. Key: Forge is Phase 7, quality grading unsolved, Keychain Agent is critical vaporware, MemPalace needs interface abstraction, Claude Code is unacknowledged single dep. Page: [[review-architecture-audit]].
+
 ## [2026-04-07] synthesis | Six-segment architecture finalized
 
 Combined all sources into unified architecture. Added Segment 6 (The Forge) for perpetual improvement. Established 12 core architecture rules. Defined 5-phase implementation plan. Pages created: [[segment-forge]], [[concept-shadow-benchmarking]], [[decision-six-segments]], [[decision-brain-never-executes]], [[decision-forge-independence]].
