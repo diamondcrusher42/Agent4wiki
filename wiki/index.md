@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-07
-> Total pages: 50
+> Total pages: 51
 > Sources ingested: 8 repos/articles + 1 architecture session + 8 external reviews + 1 implementation plan + 1 research PDF + 1 template
 
 ## Templates
@@ -33,6 +33,7 @@
 - [[concept-inter-agent-protocol]] — JSON-lines event log per channel. How segments communicate.
 - [[concept-dispatcher]] — Lightweight script bridging always-on droids to session-based Brain/Clone launches.
 - [[concept-wiki-tiering]] — Hot/warm/cold archive tiers. 500-token index cap. Prevents wiki growth failure.
+- [[concept-distributed-clones]] — Multi-machine execution fabric. Node registry, per-platform capabilities, task routing, credential isolation, use case map per hardware type.
 
 ## Tools
 
