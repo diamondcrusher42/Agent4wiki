@@ -97,7 +97,9 @@ Each clone runs in a `git worktree` — a parallel branch of the same repo with 
 ```
 The Janitor reads this handshake. The clone does not decide its own fate.
 
-Clones run on any machine in the fleet. The dispatcher routes by `target_node` and `required_platform` fields in the task JSON.
+**Handshake parsing rule:** The clone MUST output its JSON handshake as the **final line of stdout**. Parser in `CloneRunner`: split stdout by `\n`, reverse-iterate to find the last line starting with `{`, `JSON.parse()` that line. If no valid JSON found → `FAILED_REQUIRE_HUMAN`. Do not use a greedy regex on the full output — it will match debug logs, not the handshake.
+
+**Fleet routing:** `target_node` and `required_platform` fields are reserved in the task schema but **ignored by the current dispatcher — this is Phase 5+, not this build**. All tasks execute locally for now.
 
 ### Segment 5 — Janitor (The Muscle)
 Doubts everything. Prunes. Audits.
@@ -134,6 +136,14 @@ The watchdog process maintains the Telegram connection continuously. Exact launc
 ```bash
 claude --effort $EFFORT --permission-mode auto --channels plugin:telegram@claude-plugins-official
 ```
+
+**Three long-running processes — all must be running for the system to work:**
+```
+1. Telegram watchdog:  claude --effort $EFFORT --permission-mode auto --channels plugin:telegram@claude-plugins-official
+2. Python dispatcher:  source venv/bin/activate && python brain/dispatcher.py watch
+3. (Future) Fleet node: not yet implemented
+```
+The watchdog belongs to the Bridge (it is the Bridge's always-on process). The dispatcher belongs to the orchestration layer. Neither is optional.
 
 ---
 
@@ -241,6 +251,50 @@ if (!resolved.startsWith(path.resolve(worktreePath))) {
 
 **`state.json` updates are asynchronous and triggered, not per-turn.** `state.json` is updated only when: (a) the ComplexityClassifier routes to `FULL_PIPELINE`, or (b) every 5 `DIRECT` interactions have accumulated. Do NOT update on every prompt — this burns tokens on trivial turns. Implement a lightweight `flushState()` method called from these two trigger points only.
 
+**Python dispatcher calls the TypeScript lifecycle as a subprocess — this is the TS↔Python bridge.** The dispatcher.py does NOT call TypeScript functions directly. The integration contract is:
+```
+dispatcher.py spawns: npx ts-node core/clones/clone_worker.ts --task <path-to-task.json>
+clone_worker.ts reads the task JSON, runs the full TS lifecycle:
+  spawn worktree → provision credentials → run clone → Janitor evaluate → teardown
+clone_worker.ts outputs a CloneResult JSON to stdout (last line).
+dispatcher.py reads that JSON and calls bridge.py to deliver the result.
+```
+This is the only TS↔Python communication path. No shared memory, no sockets, no direct calls.
+
+**`KeychainManager.executeCloneMission()` is DEPRECATED — delete it in Phase 0.** It was the V1 lifecycle that owned the full clone execution. `CloneWorker.execute()` is the V2 lifecycle. The Keychain provides `provisionEnvironment()` and `revokeEnvironment()` as primitives; `CloneWorker` orchestrates them. Remove `executeCloneMission()` and `launchClone()` from `manager.ts` in Phase 0 — they create two competing lifecycle patterns that will confuse any future reader.
+
+**`CloneRunner.run()` is the ONLY place that spawns a claude process.** `KeychainManager.launchClone()` is DEPRECATED (V1 pattern) — delete it alongside `executeCloneMission()`. The runner receives credentials via `provisionEnvironment()` writing `.env` to the worktree; the process inherits them through the environment.
+
+**`setup.sh` is written by `spawner.ts` during worktree creation with this content:**
+```bash
+#!/bin/bash
+set -e
+cd "$(dirname "$0")"
+[[ -f package.json ]] && npm install --silent
+[[ -f requirements.txt ]] && pip install -r requirements.txt --quiet
+echo "Setup complete."
+```
+If the task template specifies additional setup commands, append them. `runner.ts` executes this file before the LLM mission. If missing: warn and proceed.
+
+**Injection variable names are standardised — templates MUST use these exact strings:**
+```
+{INJECT_SOUL_HERE}              — wiki/Soul.md + state/user_agent/soul-private.md
+{INJECT_ALLOWED_PATHS_HERE}     — filesystem scope for this clone
+{INJECT_ALLOWED_ENDPOINTS_HERE} — network scope from scopes.yaml
+{INJECT_WIKI_CONTEXT_HERE}      — relevant wiki pages (max ~500 tokens)
+{INJECT_TASK_HERE}              — the mission objective
+```
+`prompt_builder.ts` replaces exactly these five. If `templates/code-clone-TASK.md` uses different variable names (the old template uses `{INJECT_SOUL_MD_HERE}`, `{INJECT_ALLOWED_PATH_HERE}`), update the template to match, not the builder.
+
+**Wiki pages are in subdirectories — `loadWikiContext()` must search recursively.** Page names like `"segment-brain"` resolve to `wiki/segments/segment-brain.md`, not `wiki/segment-brain.md`. Implement as:
+```typescript
+for (const subdir of ['segments', 'concepts', 'tools', 'entities', 'decisions', '']) {
+  const p = subdir ? path.join(WIKI_PATH, subdir, `${pageName}.md`) : path.join(WIKI_PATH, `${pageName}.md`);
+  if (fs.existsSync(p)) { /* use p */ break; }
+}
+```
+Without this fix, wiki context injection silently fails on every task.
+
 **MemPalace MCP API is partially unknown — use `// TODO` markers.** The `repomix-full-context.txt` does not include the MemPalace server's tool definitions. When implementing `MemPalaceAdapter`, assume the MCP server exposes tools named: `create_room`, `add_memory`, `search_vault`, `get_aaak_summary`, `delete_memory`, `list_rooms`. Generate TypeScript interfaces assuming standard MCP JSON-RPC protocol. Where the exact parameter schema is uncertain, leave a `// TODO: Map to exact MemPalace MCP schema` comment. Do not guess and proceed silently — make unknowns explicit.
 
 ---
@@ -310,6 +364,20 @@ BitNet 2B          ← extreme efficiency, CPU-only, summarization
 
 When the Forge begins A/B testing, it will vary this field. The dispatcher should already pass it through to the clone launch command.
 
+**How the `model` field reaches the clone:**
+
+The clone launch command in `CloneRunner.run()` must pass the model explicitly:
+```bash
+claude --model ${task.model} --print --dangerously-skip-permissions -p "${prompt}"
+```
+
+If `--model` is not supported by the installed Claude CLI version, fall back to setting the environment variable before spawning:
+```python
+env["CLAUDE_MODEL"] = task.get("model", "claude-sonnet-4-6")
+```
+
+Check which variant works: `claude --help | grep model`. Use whichever is supported. Default `"claude-sonnet-4-6"` if the field is absent.
+
 ---
 
 ## 8. Current State
@@ -364,10 +432,14 @@ Full phase-by-phase instructions with exact code and test commands:
 
 ## 10. Full Repo Context
 
-The complete codebase is packed into a single file by Repomix:
-**`raw/repomix-full-context.txt`** (634KB)
+The codebase is packed into a focused Repomix file (excludes raw/ review documents — cleaner signal):
+**`raw/repomix-focused-context.txt`** (7,976 lines)
+
+This includes: `core/`, `brain/`, `wiki/segments/`, `wiki/concepts/`, `wiki/decisions/plan-build-v1.md`, `decision-*.md`, `templates/`, `scripts/`.
 
 Read this before modifying any file. Do not assume — read the actual code.
+
+A full pack (including all review history) is also available at `raw/repomix-full-context.txt` (634KB / 13,980 lines) if you need historical context, but start with the focused version.
 
 ---
 
@@ -399,11 +471,29 @@ Phase 4 is complete when this runs without manual intervention:
    ✓ ls state/worktrees/        (empty — cleaned up)
    ✓ tail forge/events.jsonl    (ForgeRecord entry present)
    ✓ Telegram received the notification
+
+5. Verify security:
+   ✓ ls state/worktrees/task-{id}/.env   → must NOT exist (revoked)
+   ✓ grep -r "sk-ant" state/worktrees/   → must return nothing (no leaked keys)
 ```
 
 ---
 
-## 12. Output Protocol — Staged Generation (Critical)
+## 12. Scope Guard — Do NOT
+
+These are out of scope for this build. Do not implement them.
+
+- **Fleet routing**: Phase 5+. `target_node` and `required_platform` fields are reserved but must be ignored. Do not write any multi-machine routing code.
+- **Forge**: All 4 Forge files are intentional stubs. Do not implement shadow benchmarking, ratchet, or evaluator logic. The stubs exist so the build compiles — leave them as stubs.
+- **New npm dependencies**: Do not add packages not already in `package.json`. If a third-party library seems needed, flag it and stop.
+- **Wiki pages**: `wiki/` is content, not code. Do not modify any wiki page during this build.
+- **MemPalace MCP integration**: Mark any MemPalace call as `// TODO: Map to exact MemPalace MCP schema`. Do not guess the API surface.
+- **`.env` files outside worktrees**: Write `.env` only to `state/worktrees/{task-id}/.env`. Never write secrets to the project root or any other location.
+- **console.log as primary output**: Use `bridge.send()` or `bridge.ping()` for all user-facing notifications. `console.log` is for debug only — never the main output path.
+
+---
+
+## 13. Output Protocol — Staged Generation (Critical)
 
 **Do NOT attempt to write the entire codebase in one response.**
 
@@ -425,7 +515,7 @@ Step 4: Output complete code for Phase 3 (spawner + runner + teardown).
         → STOP. Wait for "Proceed to Phase 4."
 
 Step 5: Output complete code for Phase 4 (BrainPlanner + triggerFullPipeline).
-        → STOP. Declare: "First autonomous loop ready. Run DoD checklist."
+        → STOP. Declare: "First autonomous loop ready. Run Section 11 DoD checklist."
 ```
 
 Each step: write complete, compilable, test-passing files. No placeholders. No stubs except where the build plan explicitly permits them.

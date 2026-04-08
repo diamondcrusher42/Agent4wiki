@@ -1,8 +1,8 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-08
-> Total pages: 59
-> Sources ingested: 8 repos/articles + 1 architecture session + 9 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge
+> Total pages: 60
+> Sources ingested: 8 repos/articles + 1 architecture session + 10 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge
 
 ## Templates
 
@@ -81,6 +81,7 @@
 - [[decision-system-philosophy]] — Why this was built, design choices, tools used, full roadmap. Origin story.
 - [[decision-model-governance]] — Sonnet 4.6 as benchmark baseline for all tasks. Optimisation path: Haiku → Ollama → BitNet. Forge drives the transitions.
 - [[review-gemini-review8]] — Opus brief audit: 6 findings applied (MemPalace blind spot, TS mandate, state.json trigger, path traversal fix, setup.sh hook, staged output protocol).
+- [[review-gemini-review9]] — Final brief audit: 14 findings applied (TS↔Python boundary, deprecated methods, handshake parsing, injection variables, wiki lookup paths, model flag, scope guard, security DoD tests). Brief v4 ready to send.
 
 ## Log
 
