@@ -14,6 +14,8 @@ export interface ShadowResult {
   durationSeconds: number;
   janitorNotes: string;
   templatePath: string;
+  filesModified?: string[];
+  codePreview?: string;
 }
 
 export class ShadowRunner {
@@ -48,10 +50,11 @@ export class ShadowRunner {
       variant: 'B',
       taskId: shadowId,
       directive: result.directive,
-      tokensConsumed: 0, // Would be populated from handshake in production
+      tokensConsumed: (result as any).tokensConsumed || 0,
       durationSeconds,
       janitorNotes: result.feedback,
       templatePath: variantBTemplatePath,
+      filesModified: (result as any).filesModified || [],
     };
 
     // Write result to forge/events.jsonl

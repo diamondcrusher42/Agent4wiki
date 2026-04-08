@@ -13,6 +13,8 @@ from dispatcher import (
     load_task,
     Task,
     MAX_RETRIES,
+    validate_task_id,
+    read_handshake_file,
 )
 
 
@@ -266,3 +268,57 @@ def test_fallback_to_local_when_target_not_in_registry(tmp_path, monkeypatch):
     registry = load_fleet_registry()
     node = next((n for n in registry if n.get("node_id") == "nonexistent"), None)
     assert node is None  # Not found — would fall back to local
+
+
+# ---------------------------------------------------------------------------
+# A1: SSH injection security tests
+# ---------------------------------------------------------------------------
+
+def test_validate_task_id_valid():
+    """Valid task IDs should pass through."""
+    assert validate_task_id("task-001") == "task-001"
+    assert validate_task_id("my_task_2") == "my_task_2"
+    assert validate_task_id("abc123") == "abc123"
+
+
+def test_validate_task_id_rejects_special_chars():
+    """Task IDs with shell metacharacters must raise ValueError."""
+    import pytest
+    with pytest.raises(ValueError):
+        validate_task_id("task'; rm -rf /")
+    with pytest.raises(ValueError):
+        validate_task_id("../../../etc/passwd")
+    with pytest.raises(ValueError):
+        validate_task_id("task id with spaces")
+    with pytest.raises(ValueError):
+        validate_task_id("")
+
+
+# ---------------------------------------------------------------------------
+# B1: File-based handshake tests
+# ---------------------------------------------------------------------------
+
+def test_read_handshake_file_exists(tmp_path, monkeypatch):
+    """read_handshake_file reads and deletes handshake JSON."""
+    import dispatcher
+    monkeypatch.setattr(dispatcher, "BASE_DIR", tmp_path)
+
+    hs_dir = tmp_path / "state" / "handshakes"
+    hs_dir.mkdir(parents=True)
+    hs_file = hs_dir / "task-001.json"
+    hs_file.write_text(json.dumps({"status": "COMPLETED", "tokens_consumed": 1234}))
+
+    result = read_handshake_file("task-001")
+    assert result is not None
+    assert result["status"] == "COMPLETED"
+    assert result["tokens_consumed"] == 1234
+    assert not hs_file.exists()  # cleaned up
+
+
+def test_read_handshake_file_missing(tmp_path, monkeypatch):
+    """read_handshake_file returns None when file doesn't exist."""
+    import dispatcher
+    monkeypatch.setattr(dispatcher, "BASE_DIR", tmp_path)
+
+    result = read_handshake_file("nonexistent-task")
+    assert result is None

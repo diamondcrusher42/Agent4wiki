@@ -16,6 +16,23 @@ import { DispatchDecision } from '../brain/router';
 import { PromptBuilder } from '../brain/prompt_builder';
 import { MissionBrief } from '../brain/planner';
 
+const SENSITIVE_ENV_KEYS = [
+  'VAULT_MASTER_PASSWORD',
+  'ANTHROPIC_API_KEY',  // injected per-task via keychain, not globally
+  'TELEGRAM_BOT_TOKEN',
+  'TELEGRAM_CHAT_ID',
+];
+
+export function buildCloneEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined && !SENSITIVE_ENV_KEYS.includes(k)) {
+      env[k] = v;
+    }
+  }
+  return env;
+}
+
 export interface CloneResult {
   directive: AuditDirective;
   feedback: string;
@@ -66,15 +83,26 @@ export class CloneWorker {
       });
 
       let handshake: HandshakeResult;
+      let noLeaks = true;
       try {
         await this.keychain.provisionEnvironment(handle.path, decision.requiredKeys);
         handshake = await this.runner.run(handle, prompt, brief.timeoutMinutes * 60 * 1000);
       } finally {
-        const noLeaks = await this.keychain.revokeEnvironment(handle.path);
+        noLeaks = await this.keychain.revokeEnvironment(handle.path);
         if (!noLeaks) {
-          // Credentials found in worktree after revoke — treat as BLOCK regardless of Janitor verdict
           console.error(`[CLONE_WORKER] SECURITY: Credential leak detected in ${handle.path} — forcing BLOCK`);
         }
+      }
+
+      // A3: If credentials leaked, force BLOCK immediately — do not evaluate mission
+      if (!noLeaks) {
+        await this.teardown.teardown(handle, AuditDirective.BLOCK);
+        return {
+          directive: AuditDirective.BLOCK,
+          feedback: 'SECURITY HALT: Credential leak detected in worktree after revoke. Task output discarded.',
+          escalate_to_human: true,
+          retries_used: retries,
+        };
       }
 
       const audit: AuditResult = this.janitor.evaluateMission(handshake, retries, taskId, decision.skill);

@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { execSync } from 'child_process';
+import yaml from 'js-yaml';
 
 export interface HandshakeResult {
   status: 'COMPLETED' | 'FAILED_REQUIRE_HUMAN' | 'FAILED_RETRY' | 'BLOCKED_IMPOSSIBLE';
@@ -201,30 +202,11 @@ export class KeychainManager {
     const scopesPath = path.join(__dirname, 'config', 'scopes.yaml');
     try {
       const raw = fs.readFileSync(scopesPath, 'utf-8');
-      const keys: string[] = [];
-      const lines = raw.split('\n');
-      let inSkill = false;
-      let inKeys = false;
-      for (const line of lines) {
-        if (/^\S/.test(line) && line.trim().endsWith(':')) {
-          inSkill = line.trim().replace(':', '') === skill;
-          inKeys = false;
-          continue;
-        }
-        if (!inSkill) continue;
-        if (/^\s+keys:\s*$/.test(line)) {
-          inKeys = true;
-          continue;
-        }
-        if (inKeys && /^\s+\w+:/.test(line) && !line.trim().startsWith('-')) {
-          inKeys = false;
-          continue;
-        }
-        if (inKeys && line.trim().startsWith('- ')) {
-          keys.push(line.trim().replace(/^- /, ''));
-        }
+      const parsed = yaml.load(raw) as Record<string, any>;
+      if (parsed && parsed[skill] && Array.isArray(parsed[skill].keys)) {
+        return parsed[skill].keys;
       }
-      return keys;
+      return [];
     } catch {
       console.warn(`[KEYCHAIN] Could not read scopes.yaml — returning empty scope for skill: ${skill}`);
       return [];
@@ -239,29 +221,14 @@ export class KeychainManager {
     const patterns: Array<{name: string, regex: string, severity: string}> = [];
     try {
       const raw = fs.readFileSync(patternsPath, 'utf-8');
-      let currentPattern = '';
-      let currentRegex = '';
-      let currentSeverity = '';
-      for (const line of raw.split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-        const nameMatch = line.match(/^  (\w+):\s*$/);
-        if (nameMatch) {
-          if (currentPattern && currentRegex) {
-            patterns.push({ name: currentPattern, regex: currentRegex, severity: currentSeverity });
+      const parsed = yaml.load(raw) as Record<string, any>;
+      if (parsed && parsed.patterns) {
+        for (const [name, entry] of Object.entries(parsed.patterns)) {
+          const e = entry as any;
+          if (e.regex && e.severity) {
+            patterns.push({ name, regex: e.regex, severity: e.severity });
           }
-          currentPattern = nameMatch[1];
-          currentRegex = '';
-          currentSeverity = '';
-          continue;
         }
-        const regexMatch = trimmed.match(/^regex:\s*'(.+)'$/);
-        if (regexMatch) { currentRegex = regexMatch[1]; continue; }
-        const sevMatch = trimmed.match(/^severity:\s*(\w+)$/);
-        if (sevMatch) { currentSeverity = sevMatch[1]; continue; }
-      }
-      if (currentPattern && currentRegex) {
-        patterns.push({ name: currentPattern, regex: currentRegex, severity: currentSeverity });
       }
     } catch {
       console.warn('[KEYCHAIN] Could not load patterns.yaml — using vault-value-only scan');
@@ -323,11 +290,23 @@ export class KeychainManager {
   }
 
   private getAllFiles(dirPath: string): string[] {
+    return this.getAllFilesRecursive(dirPath);
+  }
+
+  private getAllFilesRecursive(dir: string): string[] {
     try {
-      return fs.readdirSync(dirPath)
-        .filter(f => !f.startsWith('.'))
-        .map(f => path.join(dirPath, f))
-        .filter(f => fs.statSync(f).isFile());
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      const files: string[] = [];
+      for (const entry of entries) {
+        if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          files.push(...this.getAllFilesRecursive(full));
+        } else if (entry.isFile()) {
+          files.push(full);
+        }
+      }
+      return files;
     } catch {
       return [];
     }

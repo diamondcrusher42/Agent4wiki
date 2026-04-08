@@ -85,14 +85,29 @@ export class PromptBuilder {
 
   /**
    * Resolve a wiki page name to its actual file path.
-   * Pages live in subdirectories (segments/, concepts/, tools/, entities/, decisions/).
+   * Recursively searches all wiki subdirectories.
    */
   private resolveWikiPage(pageName: string): string | null {
-    for (const subdir of ['segments', 'concepts', 'tools', 'entities', 'decisions', '']) {
-      const p = subdir
-        ? path.join(WIKI_PATH, subdir, `${pageName}.md`)
-        : path.join(WIKI_PATH, `${pageName}.md`);
-      if (fs.existsSync(p)) return p;
+    return this.findFileRecursive(WIKI_PATH, `${pageName}.md`);
+  }
+
+  /**
+   * Recursively search a directory tree for a file by name.
+   */
+  private findFileRecursive(dir: string, filename: string): string | null {
+    if (!fs.existsSync(dir)) return null;
+    try {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          const found = this.findFileRecursive(full, filename);
+          if (found) return found;
+        } else if (entry.name === filename) {
+          return full;
+        }
+      }
+    } catch {
+      // Permission errors, missing dirs — return null
     }
     return null;
   }

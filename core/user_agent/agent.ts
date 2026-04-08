@@ -12,6 +12,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { ComplexityClassifier, TaskComplexity } from '../routing/classifier';
 import { BrainPlanner } from '../brain/planner';
+import Anthropic from '@anthropic-ai/sdk';
 
 export interface UserAgentState {
   last_updated: string;           // ISO timestamp
@@ -25,13 +26,17 @@ export interface UserAgentState {
 export class UserAgent {
   private classifier: ComplexityClassifier;
   private planner: BrainPlanner;
+  private anthropic: Anthropic;
   private conversationHistory: any[];  // Raw turns — compressed by Summary Pipeline
   private state: UserAgentState;
   private directCount = 0; // Track DIRECT interactions for flushState trigger
+  private readonly MAX_HISTORY_ENTRIES = 50;
+  private readonly TOKEN_FLUSH_THRESHOLD = 4000; // estimated tokens (~4 chars per token)
 
-  constructor() {
+  constructor(anthropicClient?: Anthropic) {
     this.classifier = new ComplexityClassifier();
     this.planner = new BrainPlanner();
+    this.anthropic = anthropicClient || new Anthropic();
     this.conversationHistory = [];
     this.state = this.loadState();
   }
@@ -47,6 +52,19 @@ export class UserAgent {
     console.log(`[ROUTING] Task classified as: ${complexity}`);
 
     this.conversationHistory.push({ role: 'user', content: prompt, timestamp: new Date().toISOString() });
+
+    // C2: Enforce history size limit
+    if (this.conversationHistory.length > this.MAX_HISTORY_ENTRIES) {
+      this.conversationHistory = this.conversationHistory.slice(-this.MAX_HISTORY_ENTRIES);
+    }
+
+    // C2: Token-based flush trigger
+    const estimatedTokens = this.conversationHistory
+      .map(h => ((h.content || '') as string).length / 4)
+      .reduce((a, b) => a + b, 0);
+    if (estimatedTokens > this.TOKEN_FLUSH_THRESHOLD) {
+      await this.flushState();
+    }
 
     switch (complexity) {
       case TaskComplexity.DIRECT:
@@ -68,15 +86,31 @@ export class UserAgent {
   }
 
   private async executeDirect(prompt: string): Promise<string> {
-    // TODO: Call BitNet 2B local model or return scripted response
-    // No API call — zero cost, <1s latency
-    return "Direct response placeholder";
+    try {
+      const response = await this.anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        system: 'You are a helpful assistant. Answer directly and concisely.',
+        messages: [{ role: 'user', content: prompt }],
+      });
+      return response.content
+        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+        .map(b => b.text)
+        .join('');
+    } catch (err) {
+      console.error(`[USER AGENT] executeDirect failed: ${err}`);
+      return `Error: Could not generate response.`;
+    }
   }
 
   private async routeToBrain(prompt: string): Promise<string> {
-    // TODO: Wake Brain session with L0 context + prompt
-    // Brain reads wiki, answers, no Clones spawned
-    return "Brain-only response placeholder";
+    try {
+      const planning = await this.planner.plan(prompt, `brain-${Date.now()}`);
+      return planning.reasoning.join('\n');
+    } catch (err) {
+      console.error(`[USER AGENT] routeToBrain failed: ${err}`);
+      return `Error: Brain planning failed.`;
+    }
   }
 
   /**

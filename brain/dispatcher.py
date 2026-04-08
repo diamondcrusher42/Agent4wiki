@@ -94,29 +94,50 @@ def is_local_node(target_node: str) -> bool:
     return target_node in ("", "local", socket.gethostname())
 
 
+def validate_task_id(task_id: str) -> str:
+    """Validate task ID contains only safe characters (alphanumeric, dash, underscore)."""
+    if not re.match(r'^[\w-]+$', task_id):
+        raise ValueError(f"Invalid task ID: {task_id!r} — must be alphanumeric/dash/underscore only")
+    return task_id
+
+
 def dispatch_remote(task: dict, node: dict) -> dict:
     """
     SSH into fleet node, write task.json to its inbox, wait for result.
     Returns the handshake JSON from the remote clone.
+
+    Security: uses scp via temp file to avoid shell injection through task JSON.
+    Validates task ID to prevent path traversal.
     """
-    task_json = json.dumps(task)
-    ssh_cmd = [
-        "ssh", "-i", node["ssh_key"],
-        f"{node['user']}@{node['host']}",
-        f"echo '{task_json}' > ~/agent4/brain/inbox/{task['id']}.json"
-    ]
-    subprocess.run(ssh_cmd, check=True, timeout=10)
+    import tempfile
+
+    task_id = validate_task_id(task['id'])
+
+    # Write to temp file — no shell escaping needed
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(task, f)
+        tmp_path = f.name
+
+    try:
+        remote_inbox = f"{node['user']}@{node['host']}:~/agent4/brain/inbox/{task_id}.json"
+        subprocess.run(
+            ["scp", "-i", node["ssh_key"], tmp_path, remote_inbox],
+            check=True, timeout=15
+        )
+    finally:
+        os.unlink(tmp_path)
 
     # Poll for result (max 10 minutes)
-    result_path = f"{node['user']}@{node['host']}:~/agent4/brain/completed/{task['id']}.json"
+    result_path = f"{node['user']}@{node['host']}:~/agent4/brain/completed/{task_id}.json"
+    local_result = f"/tmp/remote-result-{task_id}.json"
     for _ in range(120):  # 120 x 5s = 10 min
         time.sleep(5)
         result = subprocess.run(
-            ["scp", result_path, f"/tmp/remote-result-{task['id']}.json"],
+            ["scp", "-i", node["ssh_key"], result_path, local_result],
             capture_output=True
         )
         if result.returncode == 0:
-            with open(f"/tmp/remote-result-{task['id']}.json") as f:
+            with open(local_result) as f:
                 return json.load(f)
     raise TimeoutError(f"Remote node {node['node_id']} did not complete task within 10 minutes")
 
@@ -505,6 +526,23 @@ def notify_human(task, directive: str, handshake: dict):
 # ---------------------------------------------------------------------------
 # Janitor integration (Python-side MVP)
 # ---------------------------------------------------------------------------
+
+def read_handshake_file(task_id: str) -> Optional[dict]:
+    """
+    B1: Read handshake from file written by runner.ts.
+    Falls back to None if file doesn't exist.
+    """
+    handshake_path = BASE_DIR / "state" / "handshakes" / f"{task_id}.json"
+    if handshake_path.exists():
+        try:
+            with open(handshake_path) as f:
+                data = json.load(f)
+            handshake_path.unlink()  # clean up after reading
+            return data
+        except (json.JSONDecodeError, OSError):
+            pass
+    return None
+
 
 def extract_handshake(output: str) -> Optional[dict]:
     """Extract the JSON handshake block from clone stdout.

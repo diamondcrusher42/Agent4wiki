@@ -56,16 +56,31 @@ export class ForgeRatchet {
 
     fs.copyFileSync(variantBPath, productionPath);
 
-    // 3. Run Janitor evaluation on a test handshake
+    // 3. Run Janitor evaluation — use most recent forge event if available, else synthetic
     const janitor = new Janitor();
-    const testHandshake = {
-      status: 'COMPLETED' as const,
-      files_modified: [productionPath],
-      tests_passed: true,
-      tokens_consumed: 0,
-      duration_seconds: 0,
-      janitor_notes: `Forge promotion: ${templateName} variant B → production`,
-    };
+    const eventsPath = path.join(process.cwd(), 'forge', 'events.jsonl');
+    let testHandshake;
+    try {
+      const lines = fs.readFileSync(eventsPath, 'utf-8').trim().split('\n');
+      const lastEvent = JSON.parse(lines[lines.length - 1]);
+      testHandshake = {
+        status: 'COMPLETED' as const,
+        files_modified: lastEvent.files_modified || [productionPath],
+        tests_passed: true,
+        tokens_consumed: lastEvent.tokens_consumed || 0,
+        duration_seconds: lastEvent.duration_seconds || 0,
+        janitor_notes: `Forge promotion: ${templateName} variant B → production`,
+      };
+    } catch {
+      testHandshake = {
+        status: 'COMPLETED' as const,
+        files_modified: [productionPath],
+        tests_passed: true,
+        tokens_consumed: 0,
+        duration_seconds: 0,
+        janitor_notes: `Forge promotion: ${templateName} variant B → production`,
+      };
+    }
     const audit = janitor.evaluateMission(testHandshake, 0, `forge-promote-${templateName}`, 'code');
 
     // 4. Auto-revert on BLOCK

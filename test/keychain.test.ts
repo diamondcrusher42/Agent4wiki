@@ -435,3 +435,62 @@ test('wrong password throws on decrypt', () => {
     fs.rmSync(tmpDir, { recursive: true });
   }
 });
+
+
+// ---------------------------------------------------------------------------
+// B3: Recursive getModifiedFiles fallback
+// ---------------------------------------------------------------------------
+
+test('getAllFilesRecursive finds files nested 3 directories deep', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-recursive-'));
+
+  // Create nested structure
+  const deepDir = path.join(tmpDir, 'src', 'deep', 'nested');
+  fs.mkdirSync(deepDir, { recursive: true });
+  fs.writeFileSync(path.join(deepDir, 'leaked.ts'), 'const key = "sk-ant-abcdefghijklmnopqrstuvwxyz0123456789ABCDE";');
+  fs.writeFileSync(path.join(tmpDir, 'top-level.ts'), 'clean file');
+
+  const originalCwd = process.cwd;
+  const vaultDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-vault-recursive-'));
+  fs.writeFileSync(path.join(vaultDir, '.env'), 'KEY=short\n');
+  process.cwd = () => vaultDir;
+
+  try {
+    const km = new KeychainManager();
+    // getAllFilesRecursive is called by scanForLeaks via getModifiedFiles fallback
+    const files = (km as any).getAllFilesRecursive(tmpDir);
+    const filenames = files.map((f: string) => path.basename(f));
+    expect(filenames).toContain('leaked.ts');
+    expect(filenames).toContain('top-level.ts');
+  } finally {
+    process.cwd = originalCwd;
+    fs.rmSync(tmpDir, { recursive: true });
+    fs.rmSync(vaultDir, { recursive: true });
+  }
+});
+
+test('scanForLeaks detects leak in deeply nested file', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-deep-leak-'));
+
+  const deepDir = path.join(tmpDir, 'src', 'utils', 'config');
+  fs.mkdirSync(deepDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(deepDir, 'secrets.ts'),
+    'const key = "sk-ant-abcdefghijklmnopqrstuvwxyz0123456789ABCDE";'
+  );
+
+  const originalCwd = process.cwd;
+  const vaultDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-vault-deep-'));
+  fs.writeFileSync(path.join(vaultDir, '.env'), 'SOME_KEY=unrelated\n');
+  process.cwd = () => vaultDir;
+
+  try {
+    const km = new KeychainManager();
+    const clean = (km as any).scanForLeaks(tmpDir);
+    expect(clean).toBe(false); // pattern match in nested file
+  } finally {
+    process.cwd = originalCwd;
+    fs.rmSync(tmpDir, { recursive: true });
+    fs.rmSync(vaultDir, { recursive: true });
+  }
+});

@@ -5,6 +5,7 @@
 import { PromptBuilder } from '../core/brain/prompt_builder';
 import { BrainPlanner, MissionBrief } from '../core/brain/planner';
 import { UserAgent } from '../core/user_agent/agent';
+import * as os from 'os';
 import { ComplexityClassifier, TaskComplexity } from '../core/routing/classifier';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -120,16 +121,47 @@ describe('ComplexityClassifier', () => {
 // ---------------------------------------------------------------------------
 
 describe('UserAgent', () => {
-  test('handleUserInput routes DIRECT without API call', async () => {
-    const agent = new UserAgent();
+  test('handleUserInput routes DIRECT and calls Anthropic Haiku', async () => {
+    const mockClient = {
+      messages: {
+        create: jest.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'Hello! How can I help?' }],
+        }),
+      },
+    } as any;
+
+    const agent = new UserAgent(mockClient);
     const result = await agent.handleUserInput('hi there');
-    expect(result).toBe('Direct response placeholder');
+    expect(result).toBe('Hello! How can I help?');
+    expect(mockClient.messages.create).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'claude-haiku-4-5-20251001' })
+    );
   });
 
-  test('handleUserInput routes BRAIN_ONLY without spawning clones', async () => {
-    const agent = new UserAgent();
+  test('handleUserInput routes BRAIN_ONLY via planner', async () => {
+    const mockClient = {
+      messages: {
+        create: jest.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'Brain explanation' }],
+        }),
+      },
+    } as any;
+
+    const agent = new UserAgent(mockClient);
+    // Mock the planner
+    (agent as any).planner = {
+      plan: jest.fn().mockResolvedValue({
+        reasoning: ['Step 1: Analyze', 'Step 2: Respond'],
+        brief: { id: 'test', objective: 'explain', skill: 'code',
+          requiredKeys: [], wikiContext: [], constraints: [],
+          allowedPaths: [], allowedEndpoints: [], timeoutMinutes: 10 },
+        confidence: 0.8,
+      }),
+    };
+
     const result = await agent.handleUserInput('explain what the Brain does');
-    expect(result).toBe('Brain-only response placeholder');
+    expect(result).toContain('Step 1');
+    expect(result).toContain('Step 2');
   });
 
   test('triggerFullPipeline writes valid task JSON to brain/inbox/', async () => {
@@ -230,5 +262,80 @@ describe('BrainPlanner (structure)', () => {
     expect(brief.id).toBe('test');
     expect(brief.skill).toBe('code');
     expect(brief.timeoutMinutes).toBe(30);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// B3b: Recursive wiki page resolution
+// ---------------------------------------------------------------------------
+
+describe('PromptBuilder.findFileRecursive', () => {
+  test('finds file in deeply nested wiki subdirectory', () => {
+    const builder = new PromptBuilder();
+    const find = (builder as any).findFileRecursive.bind(builder);
+
+    // Create a temp wiki-like structure
+    const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'test-wiki-'));
+    const deepDir = path.join(tmpDir, 'decisions', 'archive');
+    fs.mkdirSync(deepDir, { recursive: true });
+    fs.writeFileSync(path.join(deepDir, 'old-decision.md'), '# Old Decision');
+
+    const found = find(tmpDir, 'old-decision.md');
+    expect(found).toBe(path.join(deepDir, 'old-decision.md'));
+
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+
+  test('returns null for nonexistent file', () => {
+    const builder = new PromptBuilder();
+    const find = (builder as any).findFileRecursive.bind(builder);
+    expect(find('wiki', 'does-not-exist.md')).toBeNull();
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// C2: Conversation history limits
+// ---------------------------------------------------------------------------
+
+describe('UserAgent conversation history limits', () => {
+  test('history is truncated at MAX_HISTORY_ENTRIES (50)', async () => {
+    const mockClient = {
+      messages: {
+        create: jest.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'ok' }],
+        }),
+      },
+    } as any;
+
+    const agent = new UserAgent(mockClient);
+
+    // Push 60 entries
+    for (let i = 0; i < 60; i++) {
+      await agent.handleUserInput(`msg ${i}`);
+    }
+
+    const history = (agent as any).conversationHistory;
+    expect(history.length).toBeLessThanOrEqual(50);
+  });
+
+  test('flushState is triggered when estimated tokens exceed threshold', async () => {
+    const mockClient = {
+      messages: {
+        create: jest.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'ok' }],
+        }),
+      },
+    } as any;
+
+    const agent = new UserAgent(mockClient);
+    const flushSpy = jest.spyOn(agent as any, 'flushState');
+
+    // Push a message with very long content to trigger token threshold
+    const longMessage = 'x'.repeat(20000); // ~5000 tokens, exceeds 4000 threshold
+    await agent.handleUserInput(longMessage);
+
+    expect(flushSpy).toHaveBeenCalled();
   });
 });

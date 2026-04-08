@@ -26,10 +26,13 @@ export class ForgeEvaluator {
    * Uses Sonnet (not Haiku — judgment quality matters).
    */
   public async evaluate(variantA: ShadowResult, variantB: ShadowResult): Promise<EvaluationResult> {
+    const codePreviewA = variantA.codePreview ? `\nCode diff A: ${variantA.codePreview}` : '';
+    const codePreviewB = variantB.codePreview ? `\nCode diff B: ${variantB.codePreview}` : '';
+
     const prompt = `You are the Forge Evaluator. Grade two clone runs on the same task.
 
-Variant A: ${variantA.tokensConsumed} tokens, ${variantA.durationSeconds}s, Janitor: ${variantA.janitorNotes}
-Variant B: ${variantB.tokensConsumed} tokens, ${variantB.durationSeconds}s, Janitor: ${variantB.janitorNotes}
+Variant A: ${variantA.tokensConsumed} tokens, ${variantA.durationSeconds}s, Janitor: ${variantA.janitorNotes}${codePreviewA}
+Variant B: ${variantB.tokensConsumed} tokens, ${variantB.durationSeconds}s, Janitor: ${variantB.janitorNotes}${codePreviewB}
 
 Winner is: more correct (Janitor NOTE > SUGGEST), then fewer tokens, then faster.
 Reply with exactly one line: WIN_A, WIN_B, or TIE. Then one sentence of reasoning.`;

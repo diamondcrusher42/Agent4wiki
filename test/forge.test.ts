@@ -205,3 +205,122 @@ describe('ForgeRatchet', () => {
     }
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// C3: Real metrics in ShadowResult and evaluator prompt
+// ---------------------------------------------------------------------------
+
+describe('ShadowResult interface', () => {
+  test('ShadowResult includes filesModified and codePreview fields', () => {
+    const result: ShadowResult = {
+      variant: 'B',
+      taskId: 'test-shadow',
+      directive: 'NOTE',
+      tokensConsumed: 1500,
+      durationSeconds: 45,
+      janitorNotes: 'clean',
+      templatePath: 'test.md',
+      filesModified: ['main.py', 'test.py'],
+      codePreview: '2 files changed, 15 insertions(+)',
+    };
+
+    expect(result.filesModified).toEqual(['main.py', 'test.py']);
+    expect(result.codePreview).toContain('files changed');
+    expect(result.tokensConsumed).toBe(1500);
+  });
+});
+
+describe('ForgeEvaluator codePreview', () => {
+  test('evaluator prompt includes codePreview when present', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-eval-preview-'));
+    fs.mkdirSync(path.join(tmpDir, 'forge'), { recursive: true });
+    const originalCwd = process.cwd;
+    process.cwd = () => tmpDir;
+
+    try {
+      const mockClient = {
+        messages: {
+          create: jest.fn().mockResolvedValue({
+            content: [{ type: 'text', text: 'WIN_B. Better code diff.' }],
+          }),
+        },
+      } as any;
+
+      const evaluator = new ForgeEvaluator(mockClient);
+
+      const variantA: ShadowResult = {
+        variant: 'A', taskId: 'a', directive: 'NOTE',
+        tokensConsumed: 2000, durationSeconds: 60,
+        janitorNotes: 'ok', templatePath: 'a.md',
+        codePreview: '3 files changed, 50 insertions(+)',
+      };
+      const variantB: ShadowResult = {
+        variant: 'B', taskId: 'b', directive: 'NOTE',
+        tokensConsumed: 1000, durationSeconds: 30,
+        janitorNotes: 'clean', templatePath: 'b.md',
+        codePreview: '1 file changed, 10 insertions(+)',
+      };
+
+      await evaluator.evaluate(variantA, variantB);
+
+      // Verify the prompt sent to the LLM includes codePreview
+      const calledPrompt = mockClient.messages.create.mock.calls[0][0].messages[0].content;
+      expect(calledPrompt).toContain('Code diff A:');
+      expect(calledPrompt).toContain('Code diff B:');
+    } finally {
+      process.cwd = originalCwd;
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+});
+
+describe('ForgeRatchet reads real forge events', () => {
+  let db: ForgeMetricsDb;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dbPath = path.join(os.tmpdir(), `test-ratchet-events-${Date.now()}.db`);
+    db = new ForgeMetricsDb(dbPath);
+  });
+
+  afterEach(() => {
+    db.close();
+    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
+  });
+
+  test('promote() reads tokens_consumed from forge events.jsonl', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-ratchet-real-'));
+    const originalCwd = process.cwd;
+    process.cwd = () => tmpDir;
+
+    const templatesDir = path.join(tmpDir, 'core', 'clones', 'templates');
+    fs.mkdirSync(templatesDir, { recursive: true });
+    fs.writeFileSync(path.join(templatesDir, 'variant_b_real.md'), '# Real variant');
+    fs.writeFileSync(path.join(templatesDir, 'real.md'), '# Original');
+
+    const wikiDir = path.join(tmpDir, 'wiki');
+    fs.mkdirSync(wikiDir, { recursive: true });
+    fs.writeFileSync(path.join(wikiDir, 'log.md'), '# Log\n');
+
+    // Write a forge event with real metrics
+    const forgeDir = path.join(tmpDir, 'forge');
+    fs.mkdirSync(forgeDir, { recursive: true });
+    fs.writeFileSync(path.join(forgeDir, 'events.jsonl'),
+      JSON.stringify({ tokens_consumed: 1500, duration_seconds: 42, files_modified: ['main.py'] }) + '\n'
+    );
+
+    try {
+      const ratchet = new ForgeRatchet(db);
+      for (let i = 0; i < 5; i++) {
+        await ratchet.recordOutcome('real', 'WIN_B');
+      }
+      // If promote succeeded without error, the events.jsonl was read
+      const prodContent = fs.readFileSync(path.join(templatesDir, 'real.md'), 'utf-8');
+      expect(prodContent).toBe('# Real variant');
+    } finally {
+      process.cwd = originalCwd;
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+});

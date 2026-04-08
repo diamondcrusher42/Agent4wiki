@@ -17,6 +17,7 @@ import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import { HandshakeResult } from '../../keychain/manager';
+import { buildCloneEnv } from '../clone_worker';
 import { WorktreeHandle } from './spawner';
 
 const execAsync = promisify(exec);
@@ -100,7 +101,7 @@ export class CloneRunner {
         ['--print', '--dangerously-skip-permissions', '-p', `@${promptFile}`],
         {
           cwd: worktreePath,
-          env: process.env, // credentials already in env from provisionEnvironment
+          env: buildCloneEnv(), // stripped of sensitive keys — credentials injected per-task via .env file
         }
       );
 
@@ -125,6 +126,8 @@ export class CloneRunner {
         // Parse handshake: reverse-iterate to find last line starting with '{'
         const handshake = this.parseHandshake(output);
         if (handshake) {
+          // B1: Write handshake to file for reliable cross-process communication
+          this.writeHandshakeFile(worktreePath, handshake);
           resolve(handshake);
         } else {
           reject(new Error(
@@ -152,6 +155,22 @@ export class CloneRunner {
       }
     }
     return null;
+  }
+
+  /**
+   * B1: Write parsed handshake to a file so dispatcher.py can read it
+   * without relying on fragile stdout parsing.
+   */
+  private writeHandshakeFile(worktreePath: string, handshake: HandshakeResult): void {
+    try {
+      const cloneId = path.basename(worktreePath);
+      const handshakesDir = path.join(process.cwd(), 'state', 'handshakes');
+      fs.mkdirSync(handshakesDir, { recursive: true });
+      const handshakePath = path.join(handshakesDir, `${cloneId}.json`);
+      fs.writeFileSync(handshakePath, JSON.stringify(handshake));
+    } catch (err) {
+      console.error(`[RUNNER] Failed to write handshake file: ${err}`);
+    }
   }
 
   private cleanupPromptFile(promptFile: string): void {
