@@ -6,6 +6,10 @@ Chronological record of all wiki operations. Append-only.
 
 review-gemini-review94: Two Brains problem, synchronous watch loop, shell injection runner.ts, quarantine mode missing, context truncation mid-JSON.
 
+## [2026-04-08] build | plan-build-v8 complete (Opus 4.6)
+
+174→198 tests (+24). 4 commits. Janitor Python/TS unified (Option B — aligned decision tree). Rename parsing, symlink guard, SHELL/USER env keys, watch() threaded, execFile, config externalization, quarantine mode for BLOCK, line-boundary truncation, truncateHistory. Bonus: jest.config.js quarantine exclusion. Branch: opus-build @ 96002ec.
+
 ## [2026-04-08] plan | plan-build-v8
 
 Phase A: Janitor unification (TS/Python), rename parsing fix, SHELL/USER env keys, symlink boundary.
