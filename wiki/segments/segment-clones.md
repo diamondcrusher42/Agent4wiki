@@ -10,6 +10,14 @@ Stateless specialist executors. Each clone gets a [[concept-mission-briefs|missi
 
 Each clone is a fresh Claude Code session in a [[concept-git-worktrees|git worktree]]. Receives mission brief with full context, constraints, and success criteria. Executes, commits results, logs decisions. Gets killed after mission completion or kept alive for continuous tasks where context is important or where the task require multiple steps needing the clone.
 
+## Skill Model — One Agent, One Mission, One Skill Set
+
+Each clone carries **1 primary skill + 1-3 complementary skills** for its specific mission. When a task crosses a domain boundary, control passes to a new clone with a different skill set — not more skills loaded into the same agent.
+
+This makes the [[concept-skill-budget|28-skill ceiling]] irrelevant at the clone level. Each clone will never approach it with 1-5 focused skills.
+
+**Skill provisioning** is part of the clone lifecycle: the spawner reads `required_skills` from the task JSON and copies only those skills from the library into the worktree's `.claude/skills/`. The clone session starts with exactly and only what it needs.
+
 ## Skill Specializations
 
 | Skill | Template | Primary Model | Use Case |
@@ -23,7 +31,7 @@ Each clone is a fresh Claude Code session in a [[concept-git-worktrees|git workt
 | Accounting | `brain/templates/accounting.md` | Claude (cloud) | Multi-entity reconciliation |
 | Telegram | `brain/templates/telegram.md` | Claude (cloud) | Bot development |
 
-See [[concept-clone-skill-templates]] for how templates work and improve.
+See [[concept-clone-skill-templates]] for how templates work and improve. See [[review-skills-playbook]] for security rules (graduation pipeline, Docker sandbox, Nemotron scan).
 
 ## Model Tiering
 
