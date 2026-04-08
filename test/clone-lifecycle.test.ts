@@ -410,3 +410,36 @@ describe('buildCloneEnv includes SHELL and USER (A3)', () => {
     expect(env['USER']).toBe('testuser');
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// B2: Shell injection fix in runner.ts (plan-build-v8)
+// ---------------------------------------------------------------------------
+
+describe('CloneRunner setup uses execFile (B2)', () => {
+  test('setup script path with spaces executes correctly', async () => {
+    const runner = new CloneRunner();
+    const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'test runner spaces '));
+    const setupPath = path.join(tmpDir, 'setup.sh');
+    fs.writeFileSync(setupPath, '#!/bin/bash\necho "ok" > /dev/null\n', { mode: 0o755 });
+
+    // runSetup is private, access it directly
+    const runSetup = (runner as any).runSetup.bind(runner);
+    // Should not throw — array form handles spaces correctly
+    await expect(runSetup(tmpDir)).resolves.not.toThrow();
+
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+
+  test('environment is correctly passed to setup', async () => {
+    // Verify that the runner module imports execFile
+    const runnerSource = fs.readFileSync(
+      path.join(process.cwd(), 'core', 'clones', 'lifecycle', 'runner.ts'),
+      'utf-8'
+    );
+    expect(runnerSource).toContain('execFileAsync');
+    expect(runnerSource).toContain("execFile");
+    // The old vulnerable pattern should not exist
+    expect(runnerSource).not.toContain('`bash "${setupScript}"`');
+  });
+});

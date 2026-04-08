@@ -1065,7 +1065,8 @@ describe('Confidence gate in triggerFullPipeline (C3)', () => {
 
     const result = await (agent as any).triggerFullPipeline('do something vague');
     expect(result).toContain('not confident');
-    expect(result).toContain('0.3');
+    // B3: raw float suppressed from user-facing message
+    expect(result).not.toMatch(/\d+\.\d+/);
     expect(result).toContain('unclear task');
   });
 
@@ -1110,5 +1111,68 @@ describe('Confidence gate in triggerFullPipeline (C3)', () => {
       else delete process.env.AGENT_BASE_DIR;
       fs.rmSync(tmpDir, { recursive: true });
     }
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// B3: Config-driven confidence threshold and wiki pages (plan-build-v8)
+// ---------------------------------------------------------------------------
+
+describe('Config-driven confidence and wiki pages (B3)', () => {
+  test('confidenceGateThreshold from config is used (not hardcoded 0.5)', () => {
+    const config = require('../core/config/clone_config.json');
+    expect(config.confidenceGateThreshold).toBeDefined();
+    expect(typeof config.confidenceGateThreshold).toBe('number');
+    
+    // Read agent.ts source to verify it references config
+    const agentSource = fs.readFileSync(
+      path.join(process.cwd(), 'core', 'user_agent', 'agent.ts'),
+      'utf-8'
+    );
+    expect(agentSource).toContain('confidenceGateThreshold');
+    // Should NOT contain hardcoded 0.5 in the confidence check line
+    expect(agentSource).not.toMatch(/planning\.confidence\s*<\s*0\.5/);
+  });
+
+  test('clarification message does NOT contain a raw float', async () => {
+    const { UserAgent } = require('../core/user_agent/agent');
+    const agent = new UserAgent();
+    
+    (agent as any).planner = {
+      plan: async () => ({
+        reasoning: ['test'],
+        brief: {
+          id: 'test-b3',
+          objective: 'vague task',
+          skill: 'code',
+          requiredKeys: [],
+          wikiContext: [],
+          constraints: [],
+          allowedPaths: [],
+          allowedEndpoints: [],
+          timeoutMinutes: 30,
+        },
+        confidence: 0.2,
+      }),
+    };
+
+    const result = await (agent as any).triggerFullPipeline('vague');
+    expect(result).toContain('not confident');
+    // No raw float like "0.2" or "0.5" in the message
+    expect(result).not.toMatch(/\b0\.\d+\b/);
+  });
+
+  test('missing wiki page returns empty context (no crash)', async () => {
+    const builder = new PromptBuilder();
+    const result = await builder.loadWikiContext(['nonexistent-page-xyz']);
+    expect(result).toBe('');
+  });
+
+  test('brainWikiPages is in clone_config.json', () => {
+    const config = require('../core/config/clone_config.json');
+    expect(config.brainWikiPages).toBeDefined();
+    expect(Array.isArray(config.brainWikiPages)).toBe(true);
+    expect(config.brainWikiPages.length).toBeGreaterThan(0);
   });
 });

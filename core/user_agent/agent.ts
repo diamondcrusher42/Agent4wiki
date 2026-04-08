@@ -14,6 +14,7 @@ import { ComplexityClassifier, TaskComplexity } from '../routing/classifier';
 import { BrainPlanner } from '../brain/planner';
 import { PromptBuilder } from '../brain/prompt_builder';
 import Anthropic from '@anthropic-ai/sdk';
+import cloneConfig from '../config/clone_config.json';
 
 export interface UserAgentState {
   last_updated: string;           // ISO timestamp
@@ -131,7 +132,7 @@ export class UserAgent {
     try {
       const soul = this.loadSoul();
       // BRAIN_ONLY gets wiki context (DIRECT does not)
-      const wikiContext = await this.promptBuilder.loadWikiContext(['concept-routing-classifier', 'segment-brain']);
+      const wikiContext = await this.promptBuilder.loadWikiContext((cloneConfig as any).brainWikiPages || ['concept-routing-classifier', 'segment-brain']);
       const systemPrompt = [soul, wikiContext ? `\n\n## Knowledge\n${wikiContext}` : '']
         .filter(Boolean).join('');
       const history = this.conversationHistory.slice(-11, -1).map(h => ({
@@ -165,8 +166,8 @@ export class UserAgent {
       const planning = await this.planner.plan(prompt, taskId);
 
       // C3: Confidence gate — low-confidence plans get clarification instead of dispatch
-      if (planning.confidence < 0.5) {
-        return `I'm not confident I understood your request correctly (confidence: ${planning.confidence}). Could you rephrase? Here's what I understood: ${planning.brief.objective}`;
+      if (planning.confidence < (cloneConfig as any).confidenceGateThreshold) {
+        return `I'm not confident I understood your request correctly. Could you rephrase? Here's what I understood: ${planning.brief.objective}`;
       }
 
       const task = {

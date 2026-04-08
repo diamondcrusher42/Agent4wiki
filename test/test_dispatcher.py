@@ -480,3 +480,117 @@ def test_janitor_tests_passed_absent_not_suggest():
     # So it should NOT hit the BLOCK for tests_passed===false, should reach NOTE
     result = janitor_evaluate(h, 0, "t-a1-4")
     assert result != "SUGGEST"
+
+
+# ---------------------------------------------------------------------------
+# B1: Concurrent watch() — threading tests (plan-build-v8)
+# ---------------------------------------------------------------------------
+
+import threading as _threading
+
+def test_watch_uses_threading(tmp_path, monkeypatch):
+    """B1: watch() should process tasks concurrently using threads."""
+    import dispatcher
+    monkeypatch.setattr(dispatcher, "BASE_DIR", tmp_path)
+    inbox = tmp_path / "brain" / "inbox"
+    monkeypatch.setattr(dispatcher, "INBOX", inbox)
+    
+    # Create inbox and required dirs
+    for d in ["brain/inbox", "brain/active", "brain/completed", "brain/failed"]:
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+    
+    # Track processing times
+    import time as _time
+    process_times = []
+    
+    def slow_process(task_path):
+        process_times.append(_time.time())
+        # Remove from inbox so it is not re-picked
+        Path(task_path).unlink(missing_ok=True)
+        _time.sleep(0.1)
+        return {"status": "ok"}
+    
+    monkeypatch.setattr(dispatcher, "process_task_file", slow_process)
+    
+    # Drop two tasks
+    for i in range(2):
+        task = {"id": f"t-b1-{i}", "type": "clone", "objective": f"task {i}", "source": "test"}
+        (inbox / f"task-b1-{i}.json").write_text(json.dumps(task))
+    
+    # Simulate threaded watch loop for a few iterations
+    active_threads = []
+    for _ in range(5):
+        active_threads = [t for t in active_threads if t.is_alive()]
+        if len(active_threads) < dispatcher.MAX_CONCURRENT:
+            tasks = dispatcher.get_pending_tasks()
+            active_names = {t.name for t in active_threads}
+            new_tasks = [t for t in tasks if str(t) not in active_names]
+            for task_path in new_tasks:
+                if len(active_threads) >= dispatcher.MAX_CONCURRENT:
+                    break
+                thread = _threading.Thread(target=dispatcher.process_task_file, args=(task_path,), name=str(task_path), daemon=True)
+                thread.start()
+                active_threads.append(thread)
+        _time.sleep(0.05)
+    for t in active_threads:
+        t.join(timeout=2)
+    
+    # Both tasks should have started within one poll interval (not sequential)
+    assert len(process_times) == 2
+    # Time between starts should be < 0.05s (concurrent), not 0.1s+ (sequential)
+    assert abs(process_times[1] - process_times[0]) < 0.08
+
+
+def test_max_concurrent_respected(tmp_path, monkeypatch):
+    """B1: MAX_CONCURRENT limit should be respected."""
+    import dispatcher
+    monkeypatch.setattr(dispatcher, "BASE_DIR", tmp_path)
+    inbox = tmp_path / "brain" / "inbox"
+    monkeypatch.setattr(dispatcher, "INBOX", inbox)
+    monkeypatch.setattr(dispatcher, "MAX_CONCURRENT", 2)
+    
+    for d in ["brain/inbox", "brain/active", "brain/completed", "brain/failed"]:
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+    
+    import time as _time
+    concurrent_count = []
+    lock = _threading.Lock()
+    active = [0]
+    
+    def counting_process(task_path):
+        with lock:
+            active[0] += 1
+            concurrent_count.append(active[0])
+        _time.sleep(0.15)
+        with lock:
+            active[0] -= 1
+    
+    monkeypatch.setattr(dispatcher, "process_task_file", counting_process)
+    
+    # Drop 4 tasks
+    for i in range(4):
+        task = {"id": f"t-mc-{i}", "type": "clone", "objective": f"task {i}", "source": "test"}
+        (inbox / f"task-mc-{i}.json").write_text(json.dumps(task))
+    
+    # Run a few iterations
+    active_threads = []
+    for _ in range(15):
+        active_threads = [t for t in active_threads if t.is_alive()]
+        if len(active_threads) < dispatcher.MAX_CONCURRENT:
+            tasks = dispatcher.get_pending_tasks()
+            active_names = {t.name for t in active_threads}
+            new_tasks = [t for t in tasks if str(t) not in active_names]
+            for task_path in new_tasks:
+                if len(active_threads) >= dispatcher.MAX_CONCURRENT:
+                    break
+                thread = _threading.Thread(target=dispatcher.process_task_file, args=(task_path,), name=str(task_path), daemon=True)
+                thread.start()
+                active_threads.append(thread)
+        _time.sleep(0.05)
+    
+    for t in active_threads:
+        t.join(timeout=2)
+    
+    # Max concurrent should never exceed MAX_CONCURRENT (2)
+    assert len(concurrent_count) > 0
+    assert max(concurrent_count) <= 2

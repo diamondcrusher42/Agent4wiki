@@ -40,6 +40,7 @@ import shutil
 import socket
 import subprocess
 import logging
+import threading
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
@@ -884,18 +885,35 @@ def get_pending_tasks() -> list[Path]:
 
 
 def watch():
-    """Main watch loop — polls inbox for new tasks."""
+    """Main watch loop — polls inbox for new tasks with concurrent execution."""
     ensure_directories()
     log.info(f"Dispatcher watching: {INBOX}")
     log.info(f"Poll interval: {POLL_INTERVAL}s | Max concurrent: {MAX_CONCURRENT}")
 
+    active_threads: list[threading.Thread] = []
+
     while True:
         try:
-            tasks = get_pending_tasks()
-            if tasks:
-                # Process one at a time in MVP (concurrent execution in Phase 4)
-                task_path = tasks[0]
-                process_task_file(task_path)
+            # Prune finished threads
+            active_threads = [t for t in active_threads if t.is_alive()]
+
+            if len(active_threads) < MAX_CONCURRENT:
+                tasks = get_pending_tasks()
+                # Filter out tasks already being processed
+                active_names = {t.name for t in active_threads}
+                new_tasks = [t for t in tasks if str(t) not in active_names]
+                for task_path in new_tasks:
+                    if len(active_threads) >= MAX_CONCURRENT:
+                        break
+                    thread = threading.Thread(
+                        target=process_task_file,
+                        args=(task_path,),
+                        name=str(task_path),
+                        daemon=True,
+                    )
+                    thread.start()
+                    active_threads.append(thread)
+
             time.sleep(POLL_INTERVAL)
         except KeyboardInterrupt:
             log.info("Dispatcher shutting down.")

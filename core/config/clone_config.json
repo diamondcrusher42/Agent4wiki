@@ -1,5 +1,11 @@
 {
   "maxRetries": 3,
   "timeoutMs": 300000,
-  "watchdogMaxAgeMinutes": 30
+  "watchdogMaxAgeMinutes": 30,
+  "confidenceGateThreshold": 0.5,
+  "brainWikiPages": [
+    "concept-routing-classifier",
+    "segment-brain"
+  ],
+  "maxWikiContextChars": 2000
 }

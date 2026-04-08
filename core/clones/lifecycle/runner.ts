@@ -11,7 +11,7 @@
 // Critical: runner.ts must time out. A hung clone burns tokens and
 // blocks the worktree. Default timeout: 30 minutes (configurable per task).
 
-import { spawn } from 'child_process';
+import { spawn, execFile } from 'child_process';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
@@ -21,6 +21,7 @@ import { buildCloneEnv } from '../clone_worker';
 import { WorktreeHandle } from './spawner';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 export class CloneRunner {
@@ -57,7 +58,7 @@ export class CloneRunner {
       return;
     }
     try {
-      await execAsync(`bash "${setupScript}"`, {
+      await execFileAsync('bash', [setupScript], {
         cwd: worktreePath,
         timeout: 5 * 60 * 1000, // 5 minute setup timeout
       });
