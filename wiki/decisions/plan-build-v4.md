@@ -31,33 +31,72 @@ All must stay green before proceeding.
 **Current bug:** Pure regex keyword matching. "clone my recipe collection" → FULL_PIPELINE (keyword: "clone"). "run me through photosynthesis" → FULL_PIPELINE (keyword: "run"). False-positive rate makes the system unusable in production.
 
 **Fix — 2-pass approach:**
+
+**Pass 1 — hardcoded unambiguous DIRECT** (saves a Haiku call for the most common interactions):
+```typescript
+// These patterns are cheap and safe — no false positives possible
+const DIRECT_PATTERNS: RegExp[] = [
+  // Greetings
+  /^(hi|hello|hey|good morning|good evening|good afternoon|yo|sup)\b/,
+  // Acknowledgements
+  /^(ok|okay|got it|thanks|thank you|cheers|perfect|great|awesome|sounds good|makes sense)\b/,
+  // Simple yes/no/confirmation
+  /^(yes|no|sure|nope|yep|yup|definitely|absolutely|agreed)\b/,
+  // Short questions that are clearly conversational
+  /^(what('s| is) (the )?(time|date|day|weather))/,
+  /^(how are you|how's it going|what's up)\b/,
+  // Single word or very short messages (≤3 words are rarely pipeline tasks)
+  // NOTE: don't put this last — let it fall through to Haiku if ambiguous
+];
+```
+
+**Pass 1 — hardcoded unambiguous FULL_PIPELINE** (phrase-level, not substring):
+```typescript
+const FULL_PIPELINE_UNAMBIGUOUS: RegExp[] = [
+  // Must include a verb + object that unambiguously implies file/code execution
+  /\b(write|create|build|implement|generate|make)\s+(a\s+)?(script|file|function|class|module|api|endpoint|cli|tool|app|program|bot)\b/,
+  /\b(refactor|debug|fix|patch)\s+(the\s+)?(code|bug|error|issue|test|function)\b/,
+  /\b(run|execute)\s+(this\s+)?(script|command|test suite|migration)\b/,
+  /\b(deploy|push to|commit to|publish to)\s+(github|prod|staging|main|heroku)\b/,
+  /\b(set up|configure|install)\s+(the\s+)?(server|database|docker|nginx|cron)\b/,
+];
+```
+
+**Pass 2 — everything else → Haiku** (≤10 tokens, ~$0.0001/call):
 ```typescript
 async classify(input: string): Promise<RouteDecision> {
-  const lower = input.toLowerCase();
+  const lower = input.toLowerCase().trim();
 
-  // Pass 1: unambiguous fast-path (existing regex — keep as-is)
   if (DIRECT_PATTERNS.some(p => p.test(lower))) return RouteDecision.DIRECT;
   if (FULL_PIPELINE_UNAMBIGUOUS.some(p => p.test(lower))) return RouteDecision.FULL_PIPELINE;
 
-  // Pass 2: ambiguous — ask Haiku
   const response = await this.anthropic.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 10,
-    system: 'Classify the user request. Reply with exactly one word: DIRECT, BRAIN_ONLY, or FULL_PIPELINE.\nDIRECT = simple question or greeting\nBRAIN_ONLY = planning or explanation, no code execution\nFULL_PIPELINE = requires writing files, running code, or using external tools',
+    system: [
+      'Classify the user request. Reply with exactly one word only: DIRECT, BRAIN_ONLY, or FULL_PIPELINE.',
+      'DIRECT = greeting, simple question, chitchat, acknowledgement — no tools needed',
+      'BRAIN_ONLY = explanation, analysis, planning, advice — no file writes or code execution',
+      'FULL_PIPELINE = must write files, run code, call external APIs, or use system tools',
+      'When in doubt, prefer BRAIN_ONLY over FULL_PIPELINE.',
+    ].join('\n'),
     messages: [{ role: 'user', content: input }],
   });
-  const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
-  return (RouteDecision as any)[text] ?? RouteDecision.BRAIN_ONLY;
+  const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('').trim().toUpperCase();
+  return (RouteDecision as any)[text] ?? RouteDecision.BRAIN_ONLY; // safe fallback
 }
 ```
 
-Move the current unambiguous FULL_PIPELINE patterns (e.g. "write a script", "create a file", "implement") to `FULL_PIPELINE_UNAMBIGUOUS`. Everything else falls through to Haiku.
+**Important:** Remove the old `fullPipelineKeywords` list entirely — it's the source of all false positives. Do not keep it as a fallback.
 
 **Tests:**
-- "clone my recipe collection" → DIRECT or BRAIN_ONLY (not FULL_PIPELINE)
-- "write a Python script to parse CSV" → FULL_PIPELINE
-- "hello" → DIRECT
-- Haiku returns unexpected value → defaults to BRAIN_ONLY (safe fallback)
+- `"clone my recipe collection"` → DIRECT or BRAIN_ONLY (not FULL_PIPELINE)
+- `"can you run me through how photosynthesis works?"` → BRAIN_ONLY
+- `"write a Python script to parse CSV"` → FULL_PIPELINE (pass 1, no Haiku call)
+- `"hello"` → DIRECT (pass 1, no Haiku call)
+- `"yes"` → DIRECT (pass 1, no Haiku call)
+- Haiku returns unexpected value → BRAIN_ONLY (safe fallback)
+- Haiku call is NOT made for unambiguous DIRECT/FULL_PIPELINE inputs (verify with mock)
 
 ### A2: Unify TS/Python Janitor heuristics
 
