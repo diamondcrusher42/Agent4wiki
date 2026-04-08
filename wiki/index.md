@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-08
-> Total pages: 83
+> Total pages: 84
 > Sources ingested: 8 repos/articles + 1 architecture session + 14 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
 
 ## Templates
@@ -100,6 +100,7 @@
 - [[decision-effort-level-routing]] — When to use --effort max vs medium. Max wins on security fixes + precision wiring. Never use high. Routing rules included.
 - [[build-state-2026-04-08-forge]] — Forge Benchmark tool: parallel model×effort runner, zero manual steps, prompt-as-file. Scorer bugs fixed: worktree path + test location. Repo: diamondcrusher42/forge-benchmark.
 - [[build-state-2026-04-08-v3]] — Plan-build-v3 complete: 84→103 tests. 3 security + 5 reliability + 3 quality fixes. opus-build @ 3b5513e. 9 TODOs queued for plan-build-v4.
+- [[build-state-2026-04-08-v4]] — Plan-build-v4 complete: 103→126 tests. 2-pass classifier, Janitor unified, Forge cost cap, exactMatchSecrets fix, executeDirect+Soul.md, ShadowRunner tokens fixed, WikiScythe gate. opus-build @ af40e52.
 - [[review-skills-playbook]] — V4 Skills Playbook: 28-skill ceiling, 4-gate triage, 5-layer security (Docker sandbox, Nemotron LLM-on-LLM, Keychain scoping), Quarantine→Probation→Production pipeline, Forge owns lifecycle.
 - [[code-suggestions-skills]] — 7 concrete code changes: required_skills task field, provisionSkills() spawner, skills/ library, Docker sandbox flag, per-skill scopes.yaml, GitHub Actions gate, Janitor skill audit. Ordered by phase.
 - [[review-opus-review89]] — Opus 5-perspective review (post Phase 5-7): Security 4, Reliability 5, Tests 6, Architecture 7, Prod 3. Top 3 beyond v3: unify TS/Python Janitor, 2-pass classifier, Forge cost cap. 6 more candidates for plan-build-v4.
