@@ -37,6 +37,7 @@ import re
 import sys
 import time
 import shutil
+import socket
 import subprocess
 import logging
 from pathlib import Path
@@ -67,6 +68,58 @@ MAX_RETRIES = 3  # Janitor circuit breaker
 
 POLL_INTERVAL = 2  # seconds between inbox checks in watch mode
 MAX_CONCURRENT = 3  # max simultaneous clone sessions
+FLEET_REGISTRY = BASE_DIR / "state" / "fleet" / "registry.json"
+
+# ---------------------------------------------------------------------------
+# Fleet routing (Phase 6B)
+# ---------------------------------------------------------------------------
+
+def load_fleet_registry() -> list:
+    """Returns list of {node_id, host, user, capabilities, ssh_key}."""
+    if not FLEET_REGISTRY.exists():
+        return []
+    try:
+        with open(FLEET_REGISTRY) as f:
+            data = json.load(f)
+            # Support both {nodes: [...]} and [...] formats
+            if isinstance(data, list):
+                return data
+            return data.get("nodes", [])
+    except (json.JSONDecodeError, KeyError):
+        return []
+
+
+def is_local_node(target_node: str) -> bool:
+    """Returns True if target_node matches current hostname."""
+    return target_node in ("", "local", socket.gethostname())
+
+
+def dispatch_remote(task: dict, node: dict) -> dict:
+    """
+    SSH into fleet node, write task.json to its inbox, wait for result.
+    Returns the handshake JSON from the remote clone.
+    """
+    task_json = json.dumps(task)
+    ssh_cmd = [
+        "ssh", "-i", node["ssh_key"],
+        f"{node['user']}@{node['host']}",
+        f"echo '{task_json}' > ~/agent4/brain/inbox/{task['id']}.json"
+    ]
+    subprocess.run(ssh_cmd, check=True, timeout=10)
+
+    # Poll for result (max 10 minutes)
+    result_path = f"{node['user']}@{node['host']}:~/agent4/brain/completed/{task['id']}.json"
+    for _ in range(120):  # 120 x 5s = 10 min
+        time.sleep(5)
+        result = subprocess.run(
+            ["scp", result_path, f"/tmp/remote-result-{task['id']}.json"],
+            capture_output=True
+        )
+        if result.returncode == 0:
+            with open(f"/tmp/remote-result-{task['id']}.json") as f:
+                return json.load(f)
+    raise TimeoutError(f"Remote node {node['node_id']} did not complete task within 10 minutes")
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -604,6 +657,36 @@ def process_task_file(task_path: Path) -> dict:
     active_path = ACTIVE / task_path.name
     shutil.move(str(task_path), str(active_path))
     log_event("task_started", {"task_id": task.id, "type": task.type, "source": task.source})
+
+    # Fleet routing check (Phase 6B)
+    target = getattr(task, 'target_node', '') if hasattr(task, 'target_node') else ''
+    if not target:
+        # Check raw task data for target_node
+        try:
+            with open(active_path) as _f:
+                _raw = json.load(_f)
+                target = _raw.get('target_node', '')
+        except:
+            target = ''
+
+    if target and not is_local_node(target):
+        registry = load_fleet_registry()
+        node = next((n for n in registry if n.get('node_id', n.get('id', '')) == target), None)
+        if node:
+            log.info(f'Dispatching task {task.id} to remote node: {target}')
+            try:
+                from dataclasses import asdict as _asdict
+                handshake = dispatch_remote(_asdict(task), node)
+                directive = janitor_evaluate(handshake, 0, task.id)
+                write_forge_record(task, directive, handshake)
+                move_to_completed(task, active_path, json.dumps(handshake))
+                log_event('task_finished', {'task_id': task.id, 'status': directive, 'type': task.type, 'node': target})
+                return handshake
+            except Exception as e:
+                log.error(f'Remote dispatch to {target} failed: {e}')
+                log.info(f'Falling back to local execution for task {task.id}')
+        else:
+            log.warning(f"target_node '{target}' not in registry — running local")
 
     # Execute
     result = execute_task(task)

@@ -1,17 +1,12 @@
 // core/forge/ratchet.ts
-// Phase 7 (deferred) — 5-Win Promotion Logic
-//
-// Tracks win/loss ratios for Variant B vs Variant A.
-// If Variant B wins 5 times in a row → promotes B to production by
-// rewriting the template in core/clones/templates/.
-//
-// Before any promotion:
-//   1. git tag forge/promotion/<timestamp> (rollback point)
-//   2. Janitor veto check (Janitor can reject if quality regresses)
-//   3. Write to wiki/log.md: promotion record with before/after metrics
+// Phase 7 — 5-Win Promotion Logic
 
+import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
 import { EvaluationOutcome } from './evaluator';
 import { ForgeMetricsDb } from './metrics_db';
+import { Janitor, AuditDirective } from '../janitor/auditor';
 
 export class ForgeRatchet {
   private readonly WIN_THRESHOLD = 5;
@@ -26,21 +21,75 @@ export class ForgeRatchet {
     templateName: string,
     outcome: EvaluationOutcome
   ): Promise<boolean> {
-    // TODO: increment/reset win streak in metrics_db
-    // TODO: if streak >= WIN_THRESHOLD: trigger promote()
-    throw new Error('ForgeRatchet.recordOutcome() not yet implemented — Phase 7 deferred');
+    this.metricsDb.recordOutcome(templateName, outcome);
+    const streak = this.metricsDb.getWinStreak(templateName);
+    if (streak >= this.WIN_THRESHOLD) {
+      await this.promote(templateName);
+      return true;
+    }
+    return false;
   }
 
   /**
    * PROMOTE — elevates Variant B to production template.
-   * Creates rollback tag, checks Janitor veto, rewrites template file.
    */
-  private async promote(templateName: string): Promise<void> {
-    // TODO: git tag forge/promotion/<timestamp>
-    // TODO: copy variant_b_<template>.md → core/clones/templates/<template>.md
-    // TODO: run Janitor.evaluateMission() on a test handshake with new template
-    // TODO: if BLOCK from Janitor: git checkout <tag> -- <templatePath> (auto-revert)
-    // TODO: write promotion record to wiki/log.md
-    throw new Error('ForgeRatchet.promote() not yet implemented — Phase 7 deferred');
+  public async promote(templateName: string): Promise<void> {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const tag = `forge/promotion/${timestamp}`;
+
+    // 1. Git tag for rollback
+    try {
+      execSync(`git tag ${tag}`, { stdio: 'pipe' });
+    } catch (err) {
+      console.error(`[FORGE RATCHET] Failed to create git tag: ${err}`);
+    }
+
+    // 2. Copy variant_b template to production
+    const templatesDir = path.join(process.cwd(), 'core', 'clones', 'templates');
+    const variantBPath = path.join(templatesDir, `variant_b_${templateName}.md`);
+    const productionPath = path.join(templatesDir, `${templateName}.md`);
+
+    if (!fs.existsSync(variantBPath)) {
+      console.warn(`[FORGE RATCHET] Variant B template not found: ${variantBPath}`);
+      return;
+    }
+
+    fs.copyFileSync(variantBPath, productionPath);
+
+    // 3. Run Janitor evaluation on a test handshake
+    const janitor = new Janitor();
+    const testHandshake = {
+      status: 'COMPLETED' as const,
+      files_modified: [productionPath],
+      tests_passed: true,
+      tokens_consumed: 0,
+      duration_seconds: 0,
+      janitor_notes: `Forge promotion: ${templateName} variant B → production`,
+    };
+    const audit = janitor.evaluateMission(testHandshake, 0, `forge-promote-${templateName}`, 'code');
+
+    // 4. Auto-revert on BLOCK
+    if (audit.directive === AuditDirective.BLOCK) {
+      console.warn(`[FORGE RATCHET] Janitor BLOCK on promotion — reverting ${templateName}`);
+      try {
+        execSync(`git checkout ${tag} -- "${productionPath}"`, { stdio: 'pipe' });
+      } catch {
+        console.error(`[FORGE RATCHET] Auto-revert failed for ${productionPath}`);
+      }
+      return;
+    }
+
+    // 5. Write promotion record to wiki/log.md
+    const logPath = path.join(process.cwd(), 'wiki', 'log.md');
+    if (fs.existsSync(logPath)) {
+      const record = `\n## [${new Date().toISOString()}] FORGE PROMOTION\n` +
+        `- Template: ${templateName}\n` +
+        `- Win streak: ${this.WIN_THRESHOLD}+ consecutive WIN_B\n` +
+        `- Rollback tag: ${tag}\n` +
+        `- Janitor: ${audit.directive}\n`;
+      fs.appendFileSync(logPath, record);
+    }
+
+    console.log(`[FORGE RATCHET] Promoted ${templateName} — tag: ${tag}`);
   }
 }

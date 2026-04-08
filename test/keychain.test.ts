@@ -299,3 +299,139 @@ test('buildScopedEnv throws for missing key', () => {
   const km = new KeychainManager();
   expect(() => km.buildScopedEnv(['NONEXISTENT_KEY'])).toThrow('SECURITY HALT');
 });
+
+// ---------------------------------------------------------------------------
+// Phase 5A — AES-256 Vault tests
+// ---------------------------------------------------------------------------
+
+test('initVault() writes encrypted file, not plaintext', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-vault-init-'));
+  const originalCwd = process.cwd;
+  process.cwd = () => tmpDir;
+
+  try {
+    fs.mkdirSync(path.join(tmpDir, '.env'), { recursive: false }); // no .env file trick — just make dir nonexistent
+  } catch { /* ignore */ }
+
+  // Need no .env so constructor loads empty vault
+  process.cwd = () => tmpDir;
+
+  try {
+    const km = new KeychainManager();
+    km.initVault('test-master-password', { SECRET: 'my-secret-value-longer-than-17' });
+
+    const encPath = path.join(tmpDir, 'state', 'keychain', 'vault.enc');
+    const saltPath = path.join(tmpDir, 'state', 'keychain', 'vault.salt');
+
+    expect(fs.existsSync(encPath)).toBe(true);
+    expect(fs.existsSync(saltPath)).toBe(true);
+
+    // Encrypted file should NOT contain plaintext secret
+    const encContent = fs.readFileSync(encPath, 'utf-8');
+    expect(encContent).not.toContain('my-secret-value-longer-than-17');
+
+    // Should be valid JSON with iv, authTag, ciphertext
+    const parsed = JSON.parse(encContent);
+    expect(parsed.iv).toBeDefined();
+    expect(parsed.authTag).toBeDefined();
+    expect(parsed.ciphertext).toBeDefined();
+  } finally {
+    process.cwd = originalCwd;
+    fs.rmSync(tmpDir, { recursive: true });
+  }
+});
+
+test('loadMasterVault() decrypts correctly', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-vault-decrypt-'));
+  const originalCwd = process.cwd;
+  const originalEnv = process.env.VAULT_MASTER_PASSWORD;
+
+  process.cwd = () => tmpDir;
+
+  try {
+    // Create vault with initVault
+    const km1 = new KeychainManager();
+    km1.initVault('decrypt-test-pw', { MY_KEY: 'my-value-that-is-long-enough' });
+
+    // Now set password env and create a new instance — should decrypt
+    process.env.VAULT_MASTER_PASSWORD = 'decrypt-test-pw';
+    const km2 = new KeychainManager();
+    const vault = (km2 as any).masterVault;
+
+    expect(vault['MY_KEY']).toBe('my-value-that-is-long-enough');
+  } finally {
+    process.cwd = originalCwd;
+    if (originalEnv !== undefined) process.env.VAULT_MASTER_PASSWORD = originalEnv;
+    else delete process.env.VAULT_MASTER_PASSWORD;
+    fs.rmSync(tmpDir, { recursive: true });
+  }
+});
+
+test('loadMasterVault() falls back to .env when vault.enc missing', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-vault-fallback-'));
+  fs.writeFileSync(path.join(tmpDir, '.env'), 'FALLBACK_KEY=fallback-value\n');
+
+  const originalCwd = process.cwd;
+  process.cwd = () => tmpDir;
+
+  try {
+    const km = new KeychainManager();
+    const vault = (km as any).masterVault;
+    expect(vault['FALLBACK_KEY']).toBe('fallback-value');
+  } finally {
+    process.cwd = originalCwd;
+    fs.rmSync(tmpDir, { recursive: true });
+  }
+});
+
+test('addSecret() persists across reload', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-vault-add-'));
+  const originalCwd = process.cwd;
+  const originalEnv = process.env.VAULT_MASTER_PASSWORD;
+
+  process.cwd = () => tmpDir;
+  process.env.VAULT_MASTER_PASSWORD = 'add-secret-test-pw';
+
+  try {
+    // Init vault
+    const km1 = new KeychainManager();
+    km1.initVault('add-secret-test-pw', { INITIAL: 'initial-value-long-enough' });
+
+    // Add a secret
+    km1.addSecret('NEW_SECRET', 'new-value-that-is-definitely-long-enough');
+
+    // Reload from disk
+    const km2 = new KeychainManager();
+    const vault = (km2 as any).masterVault;
+    expect(vault['INITIAL']).toBe('initial-value-long-enough');
+    expect(vault['NEW_SECRET']).toBe('new-value-that-is-definitely-long-enough');
+  } finally {
+    process.cwd = originalCwd;
+    if (originalEnv !== undefined) process.env.VAULT_MASTER_PASSWORD = originalEnv;
+    else delete process.env.VAULT_MASTER_PASSWORD;
+    fs.rmSync(tmpDir, { recursive: true });
+  }
+});
+
+test('wrong password throws on decrypt', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-vault-wrongpw-'));
+  const originalCwd = process.cwd;
+  const originalEnv = process.env.VAULT_MASTER_PASSWORD;
+
+  process.cwd = () => tmpDir;
+
+  try {
+    // Init vault with one password
+    const km1 = new KeychainManager();
+    km1.initVault('correct-password', { KEY: 'value-longer-than-seventeen-chars' });
+
+    // Try to load with wrong password
+    process.env.VAULT_MASTER_PASSWORD = 'wrong-password';
+    expect(() => new KeychainManager()).toThrow();
+  } finally {
+    process.cwd = originalCwd;
+    if (originalEnv !== undefined) process.env.VAULT_MASTER_PASSWORD = originalEnv;
+    else delete process.env.VAULT_MASTER_PASSWORD;
+    fs.rmSync(tmpDir, { recursive: true });
+  }
+});

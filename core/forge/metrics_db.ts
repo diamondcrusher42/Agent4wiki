@@ -1,20 +1,8 @@
 // core/forge/metrics_db.ts
-// Phase 7 (deferred) — Lightweight SQLite metrics store for Forge
-//
-// Tracks over time:
-//   - Latency (duration_seconds) per skill/template
-//   - Token usage (tokens_consumed) per skill/template
-//   - Janitor rejection rates (BLOCK/SUGGEST counts)
-//   - Win/loss streaks for A/B comparisons
-//
-// SQLite chosen over JSONL for Forge metrics because:
-//   - Queries (avg latency, win streak) are easier in SQL than JSONL scan
-//   - The Forge is the only writer → no concurrency issues
-//   - JSONL (forge/events.jsonl) remains the Janitor's append-only audit log
-//
-// NOTE: metrics DB lives in state/ (gitignored) — it's runtime data.
-// Database path: state/memory/forge_metrics.db
+// Phase 7 — Lightweight SQLite metrics store for Forge
+// Tracks latency, token usage, janitor rejection rates, win/loss streaks.
 
+import Database from 'better-sqlite3';
 import { EvaluationOutcome } from './evaluator';
 
 export interface MetricRow {
@@ -28,29 +16,53 @@ export interface MetricRow {
 }
 
 export class ForgeMetricsDb {
-  private dbPath: string;
+  private db: Database.Database;
 
   constructor(dbPath: string = 'state/memory/forge_metrics.db') {
-    this.dbPath = dbPath;
+    this.db = new Database(dbPath);
+    this.init();
   }
 
-  public async init(): Promise<void> {
-    // TODO: open SQLite connection (better-sqlite3 or sqlite3 npm package)
-    // TODO: CREATE TABLE IF NOT EXISTS metrics (...)
-    // TODO: CREATE TABLE IF NOT EXISTS ab_outcomes (template, outcome, timestamp)
-    throw new Error('ForgeMetricsDb.init() not yet implemented — Phase 7 deferred');
+  public init(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS metrics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        template_name TEXT, skill TEXT, directive TEXT,
+        tokens_consumed INTEGER, duration_seconds REAL,
+        janitor_notes TEXT, timestamp TEXT
+      );
+      CREATE TABLE IF NOT EXISTS ab_outcomes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        template_name TEXT, outcome TEXT, timestamp TEXT
+      );
+    `);
   }
 
-  public async insertMetric(row: MetricRow): Promise<void> {
-    throw new Error('ForgeMetricsDb.insertMetric() not yet implemented — Phase 7 deferred');
+  public insertMetric(row: MetricRow): void {
+    this.db.prepare(`INSERT INTO metrics VALUES (null,?,?,?,?,?,?,?)`)
+      .run(row.template_name, row.skill, row.directive,
+           row.tokens_consumed, row.duration_seconds,
+           row.janitor_notes, row.timestamp);
   }
 
-  public async getWinStreak(templateName: string): Promise<number> {
-    // Returns current consecutive B-win count for the given template
-    throw new Error('ForgeMetricsDb.getWinStreak() not yet implemented — Phase 7 deferred');
+  public getWinStreak(templateName: string): number {
+    const rows = this.db.prepare(
+      `SELECT outcome FROM ab_outcomes WHERE template_name=? ORDER BY id DESC LIMIT 10`
+    ).all(templateName) as {outcome: string}[];
+    let streak = 0;
+    for (const row of rows) {
+      if (row.outcome === 'WIN_B') streak++;
+      else break;
+    }
+    return streak;
   }
 
-  public async recordOutcome(templateName: string, outcome: EvaluationOutcome): Promise<void> {
-    throw new Error('ForgeMetricsDb.recordOutcome() not yet implemented — Phase 7 deferred');
+  public recordOutcome(templateName: string, outcome: EvaluationOutcome): void {
+    this.db.prepare(`INSERT INTO ab_outcomes VALUES (null,?,?,?)`)
+      .run(templateName, outcome, new Date().toISOString());
+  }
+
+  public close(): void {
+    this.db.close();
   }
 }

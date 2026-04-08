@@ -1,15 +1,8 @@
 // core/forge/shadow_runner.ts
-// Phase 7 (deferred) — Parallel shadow execution for A/B template testing
-//
-// Spawns a background clone using an experimental Mission Brief template
-// (Variant B) while Variant A runs in production. Neither clone knows about
-// the other. Results feed into evaluator.ts for comparison.
-//
-// Forge/Janitor territory rule ([[segment-janitor]]):
-//   Janitor runs first (reactive, identifies current problems).
-//   Forge runs after (proactive, builds alternatives).
-//   Janitor can VETO a Forge promotion.
+// Phase 7 — Parallel shadow execution for A/B template testing
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { CloneWorker } from '../clones/clone_worker';
 import { MissionBrief } from '../brain/planner';
 
@@ -29,13 +22,49 @@ export class ShadowRunner {
   /**
    * RUN SHADOW — spawns Variant B in background, returns its result.
    * Does not affect production execution.
-   * Called by Forge after production clone (Variant A) completes.
    */
   public async runShadow(brief: MissionBrief, variantBTemplatePath: string): Promise<ShadowResult> {
-    // TODO: deep clone the brief, override templatePath with variantBTemplatePath
-    // TODO: run via CloneWorker (full lifecycle, isolated worktree)
-    // TODO: capture result WITHOUT merging (even on NOTE — shadow never reaches main)
-    // TODO: write result to metrics_db
-    throw new Error('ShadowRunner.runShadow() not yet implemented — Phase 7 deferred');
+    // Deep clone the brief, override templatePath
+    const shadowBrief: MissionBrief = JSON.parse(JSON.stringify(brief));
+    const shadowId = `shadow-${brief.id}-${Date.now()}`;
+
+    const startTime = Date.now();
+
+    // Run via CloneWorker — full lifecycle
+    const result = await this.cloneWorker.execute(
+      shadowBrief,
+      {
+        skill: 'code',
+        templatePath: variantBTemplatePath,
+        requiredKeys: brief.requiredKeys,
+        priority: 5, // background priority
+      },
+      shadowId
+    );
+
+    const durationSeconds = (Date.now() - startTime) / 1000;
+
+    const shadowResult: ShadowResult = {
+      variant: 'B',
+      taskId: shadowId,
+      directive: result.directive,
+      tokensConsumed: 0, // Would be populated from handshake in production
+      durationSeconds,
+      janitorNotes: result.feedback,
+      templatePath: variantBTemplatePath,
+    };
+
+    // Write result to forge/events.jsonl
+    const eventsPath = path.join(process.cwd(), 'forge', 'events.jsonl');
+    const dir = path.dirname(eventsPath);
+    fs.mkdirSync(dir, { recursive: true });
+    const record = {
+      type: 'shadow_result',
+      ...shadowResult,
+      timestamp: new Date().toISOString(),
+    };
+    fs.appendFileSync(eventsPath, JSON.stringify(record) + '\n');
+
+    return shadowResult;
   }
 }

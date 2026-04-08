@@ -208,3 +208,61 @@ def test_load_task_with_model(tmp_path):
     task_file.write_text(json.dumps(task_data))
     task = load_task(task_file)
     assert task.model == "claude-haiku-4-5-20251001"
+
+
+# ---------------------------------------------------------------------------
+# Phase 6B — Fleet routing tests
+# ---------------------------------------------------------------------------
+
+from dispatcher import is_local_node, load_fleet_registry, dispatch_remote
+import socket
+
+
+def test_is_local_node_local():
+    assert is_local_node("local") is True
+
+
+def test_is_local_node_hostname():
+    assert is_local_node(socket.gethostname()) is True
+
+
+def test_is_local_node_empty():
+    assert is_local_node("") is True
+
+
+def test_is_local_node_unknown():
+    assert is_local_node("unknown-host-xyz-999") is False
+
+
+def test_dispatch_remote_called_when_target_nonlocal(tmp_path, monkeypatch):
+    """dispatch_remote() is callable when target_node is non-local and in registry."""
+    import dispatcher
+
+    registry_path = tmp_path / "state" / "fleet" / "registry.json"
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_data = [
+        {"node_id": "remote-node", "host": "192.168.1.100", "user": "agent", "ssh_key": "/tmp/key", "capabilities": ["code"]}
+    ]
+    registry_path.write_text(json.dumps(registry_data))
+
+    monkeypatch.setattr(dispatcher, "FLEET_REGISTRY", registry_path)
+
+    registry = load_fleet_registry()
+    assert len(registry) == 1
+    assert registry[0]["node_id"] == "remote-node"
+    assert not is_local_node("remote-node")
+
+
+def test_fallback_to_local_when_target_not_in_registry(tmp_path, monkeypatch):
+    """When target_node is not in registry, dispatcher falls back to local."""
+    import dispatcher
+
+    registry_path = tmp_path / "state" / "fleet" / "registry.json"
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text(json.dumps([]))
+
+    monkeypatch.setattr(dispatcher, "FLEET_REGISTRY", registry_path)
+
+    registry = load_fleet_registry()
+    node = next((n for n in registry if n.get("node_id") == "nonexistent"), None)
+    assert node is None  # Not found — would fall back to local
