@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-07
-> Total pages: 52
+> Total pages: 53
 > Sources ingested: 8 repos/articles + 1 architecture session + 8 external reviews + 1 implementation plan + 1 research PDF + 1 template
 
 ## Templates
@@ -74,6 +74,7 @@
 - [[review-opus-review4]] — Directory + gitignore: events/ dir, keychain/config/ YAMLs, Python artifacts, worktrees-inside-repo note (deferred), Soul.md two-file split (deferred).
 - [[review-gemini-review6]] — Phase 4/5/7 file structure: Brain split (planner/dispatcher/prompt_builder), Clones lifecycle/ subdir + clone_worker, Forge 4 files (shadow_runner/evaluator/ratchet/metrics_db).
 - [[review-code-audit-1]] — Full codebase audit: 6 🔴 critical (compile errors, security), 9 🟡 structural, 5 🟢 weak. Priority fix order included.
+- [[review-gemini-review7]] — Current state deep dive: inbox pattern validated, 3 blind spots (TS→Python bridge, vault stub, Janitor loop). "This week" path: Steps 1+2 = first autonomous loop.
 
 ## Log
 
