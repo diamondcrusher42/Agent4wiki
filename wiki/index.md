@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-08
-> Total pages: 89
+> Total pages: 91
 > Sources ingested: 8 repos/articles + 1 architecture session + 14 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
 
 ## Templates
@@ -106,6 +106,8 @@
 - [[plan-build-v5]] — Phase A (Forge budget fix, duplicate msg, routeToBrain history) + Phase B (spawner validation, wiki cap) + Phase C (promote filter, setup.sh cache, exactMatchSecrets Set). Target 126→141 tests.
 - [[build-state-2026-04-08-v5]] — Plan-build-v5 complete: 126→140 tests. Forge budget real, duplicate msg fixed, spawner injection blocked, wiki budget cap, exactMatchSecrets Set, dispatcher file handle. opus-build @ 83e6ba8.
 - [[review-opus-review92]] — Opus post-v5: Top 3: cleanupStaleWorktrees registry format mismatch (always clears on startup), dispatcher.py create_worktree() missing task ID validation, TS/Python Janitor divergence on tests_passed:false. Also: scythe filePath injection, planner no JSON retry.
+- [[review-gemini-review92]] — Gemini post-v5: scanForLeaks OOM (2GB file → Node crash, silently skipped), dispatcher stdout captures secrets to disk, registry race condition at MAX_CONCURRENT=3, routeToBrain double call, setup.sh supply chain (--ignore-scripts).
+- [[plan-build-v6]] — Phase A (registry fix, dispatcher validation, OOM guard) + Phase B (scythe sanitization, --ignore-scripts) + Phase C (planner retry, soul TTL, routeToBrain single call). Target 140→156 tests.
 - [[review-skills-playbook]] — V4 Skills Playbook: 28-skill ceiling, 4-gate triage, 5-layer security (Docker sandbox, Nemotron LLM-on-LLM, Keychain scoping), Quarantine→Probation→Production pipeline, Forge owns lifecycle.
 - [[code-suggestions-skills]] — 7 concrete code changes: required_skills task field, provisionSkills() spawner, skills/ library, Docker sandbox flag, per-skill scopes.yaml, GitHub Actions gate, Janitor skill audit. Ordered by phase.
 - [[review-opus-review89]] — Opus 5-perspective review (post Phase 5-7): Security 4, Reliability 5, Tests 6, Architecture 7, Prod 3. Top 3 beyond v3: unify TS/Python Janitor, 2-pass classifier, Forge cost cap. 6 more candidates for plan-build-v4.
