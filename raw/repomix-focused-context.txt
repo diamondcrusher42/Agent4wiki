@@ -78,6 +78,7 @@ wiki/
     decision-system-philosophy.md
     decision-typescript-python.md
     plan-build-v1.md
+    plan-forge-benchmarking.md
     plan-forge-v01-benchmarking.md
     plan-implementation-v4.md
     review-architecture-audit.md
@@ -128,138 +129,237 @@ wiki/
 <files>
 This section contains the contents of the repository's files.
 
-<file path="wiki/decisions/build-state-2026-04-08.md">
-# Build State — 2026-04-08
+<file path="wiki/decisions/plan-forge-benchmarking.md">
+# Plan — Claude Code Performance Benchmarking
 
-> Snapshot of the full system as of end of day 2026-04-08.
-> Branch: `opus-build` — 6 commits ahead of `main`
+> Date: 2026-04-08
+> Source: `raw/claude-code-tuning-report.md`
+> Context: Opus 4.6 regression (adaptive thinking + medium effort default); report by Stella Laurenzo (6,852 sessions, 234K tool calls)
+> Goal: Establish baseline, find optimal config, lock in settings before burning quota
 
-## What Is Real, Working Code
+## The Problem
 
-All Phases 0-4 were built by Claude Opus 4.6 in a single session. Two security patches applied manually after Gemini code review (review-68).
+Opus 4.6 introduced adaptive thinking that defaults to minimal reasoning for tasks it considers "simple" — but routinely misjudges complexity on multi-step engineering work. Combined with default effort=medium and 1M context window, this produces measurable regressions: Read:Edit ratio dropped from 6.6 to 2.0 (-70%), user interrupt rate up 556%.
 
-### Phase 0 — Compile Fixes ✅
+Our exposure: every clone run, every wiki ingest, every Gemini review processing burns quota at degraded quality if we're on the wrong settings.
 
-All TypeScript compile errors resolved. `tsc` exits 0. Commit: `7ee2534`.
+## Phase 0 — Apply Quick-Start Config (Today, Confirm First)
 
-| Fix | File |
-|-----|------|
-| MissionBrief defined twice | Removed duplicate from keychain/manager.ts |
-| Missing `provisionEnvironment()` | Added to KeychainManager |
-| Missing `revokeEnvironment()` | Added to KeychainManager |
-| Missing `getScopeKeys()` | Added to KeychainManager |
-| Missing `writeSummary()` | Added to MemPalaceAdapter |
-| Missing `audit()` | Added to MemPalaceAdapter |
-| `MemoryTier` enum not used | Fixed readContext() signature |
-| Renamed `dispatcher.ts` → `router.ts` | Prevents Python name clash |
+**Pending approval from Jure.** These settings provide immediate improvement based on community consensus while benchmarking runs.
 
-### Phase 1 — Dispatcher + Janitor Integration ✅ 17 pytest
-
-Python dispatcher fully wired to Janitor. Commit: `845b74f`.
-
-- `dispatcher.py watch` loops, picks up task.json from `brain/inbox/`
-- Parses clone stdout for JSON handshake (reverse-iterate last line starting with `{`)
-- Calls `janitor_evaluate(handshake, retry_count)` — returns BLOCK/SUGGEST/NOTE
-- BLOCK → moved to `brain/failed/`, BLOCK alert via Bridge (Telegram + Email)
-- SUGGEST → re-queued with Janitor feedback appended (max 3 retries)
-- NOTE → moved to `brain/completed/`, ForgeRecord written to `forge/events.jsonl`
-- 17 pytest covering dispatch lifecycle, retry logic, BLOCK escalation
-
-### Phase 2 — Keychain Credentials ✅ 14 Jest
-
-Full credential lifecycle implemented. Commit: `842631c`.
-
-- `loadMasterVault()` reads from `.env` file (MVP — AES vault in Phase 5)
-- `provisionEnvironment(worktreePath, keys)` writes `.env` with `0o600` permissions
-- `revokeEnvironment(worktreePath)` deletes `.env`, runs `scanForLeaks()`
-- `scanForLeaks()` scans modified files with both exact-match and regex patterns
-- `buildScopedEnv(skill)` reads `config/scopes.yaml` — clones get only what they need
-- Security patches applied (see below): path traversal + entropy threshold
-- 14 Jest covering full credential lifecycle
-
-### Phase 3 — Clone Lifecycle ✅ 12 Jest
-
-Full clone spawn/run/teardown. Commit: `ca45996`.
-
-- `CloneSpawner.createWorktree()` creates git worktree, writes `setup.sh`, copies TASK.md template, registers in `state/worktrees/registry.json`
-- `CloneRunner.run()` executes `setup.sh → repomix → claude --print` session, reverse-iterates stdout to parse JSON handshake
-- `CloneTeardown` merges on NOTE, force-removes worktree, prunes branch, deregisters
-- 12 Jest: 6 unit (handshake parsing), 6 integration (real git worktrees)
-
-### Phase 4 — Brain + Full Pipeline ✅ 14 Jest
-
-First autonomous loop. Commit: `9a22294`.
-
-- `BrainPlanner.plan()` calls Haiku → `MissionBrief`
-- `triggerFullPipeline()` auto-writes `task.json` to `brain/inbox/`
-- `ComplexityClassifier` routes: DIRECT / BRAIN_ONLY / FULL_PIPELINE
-- `UserAgent.handleUserInput()` wired to classifier → appropriate pipeline
-- `ForgeRecord` written to `forge/events.jsonl` on NOTE
-- 14 Jest: injection, routing, pipeline, state
-
-### Security Patches (post-Gemini review-68)
-
-Commit: `3650a3f`
-
-| Patch | File | What was wrong |
-|-------|------|----------------|
-| Path traversal fix | `core/keychain/manager.ts:183` | `startsWith()` allows clone-1 to escape into clone-12 sandbox. Fixed with `path.relative()` — `..` or absolute = rejected |
-| Entropy threshold | `core/keychain/manager.ts:174` | `> 8` chars causes false-positive FAILED_REQUIRE_HUMAN on `DEBUG=true`, `PORT=3000`. Changed to `> 16` chars |
-
-14/14 keychain tests still green after patches.
-
-## What Remains (Known TODOs)
-
-| Item | File | Status |
-|------|------|--------|
-| MCP transport | `core/memory_store/mempalace_adapter.ts` | All methods are `// TODO` stubs. Wire `StdioClientTransport` when MemPalace MCP server confirmed running. Low priority — Brain falls back to wiki context. |
-| AES-256 vault | `core/keychain/manager.ts:loadMasterVault()` | MVP reads plain `.env`. Real vault (Argon2id key derivation, AES-256-GCM) is Phase 5. |
-| WikiScythe | `core/janitor/scythe.ts` | Contradiction detection must be V4-implemented (LLM semantic comparison). MemPalace KG only blocks exact duplicate triples. |
-| Fleet routing | `brain/dispatcher.py` | `target_node` field parsing not implemented. All tasks run on current node. |
-| Forge | `core/forge/` | All 4 files are stubs. Shadow runner, evaluator, ratchet, metrics DB for Phase 7. |
-| BitNet/User Agent | `core/user_agent/` | Always-on local model integration not wired. |
-
-## Test Summary
-
-| Phase | Tests | Status |
-|-------|-------|--------|
-| Phase 0 | tsc exits 0 | ✅ |
-| Phase 1 | 17 pytest | ✅ |
-| Phase 2 | 14 Jest | ✅ |
-| Phase 3 | 12 Jest | ✅ |
-| Phase 4 | 14 Jest | ✅ |
-| **Total** | **57 tests** | **✅ All green** |
-
-## Verified End-to-End Flow
-
-```
-User message → ComplexityClassifier → FULL_PIPELINE
-  → BrainPlanner.plan() (Haiku) → MissionBrief
-  → task.json written to brain/inbox/
-  → dispatcher.py watch picks up task
-  → CloneWorker: spawner → keychain provision → runner (claude session) → janitor evaluate → teardown
-  → ForgeRecord written to forge/events.jsonl
-  → Bridge delivers result via Telegram
+Add to `~/.claude/settings.json` under `"env"`:
+```json
+"CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
+"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "75"
 ```
 
-DoD test confirmed: dispatcher → clone → Janitor → Bridge (Telegram + Email broadcast 200 OK).
+At session start: `/effort high`
 
-## Branch Status
+**Cost impact:** ~1.5-2x quota consumption vs current defaults. On Max 5x, still ~5-6 hours active work per window.
 
+**CLAUDE.md additions** (add to `~/workspace/CLAUDE.md` before testing):
+- "Always read a file completely before editing it. Never edit a file you haven't read this session."
+- "When fixing a bug, fix the root cause, not the symptom. Never say 'simplest fix'."
+- "Do not stop working or ask permission to continue unless you genuinely need clarification."
+- Compaction preservation instructions: current file paths, test failure context, architecture decisions, task objective
+
+---
+
+## Phase 1 — Sonnet Baseline (6 runs)
+
+### Benchmark Codebase
+
+`opus-build` branch of Agent4wiki at commit `9a22294` (pre-security-patch state). This is ideal:
+- Real code, known structure, known bugs
+- We know the correct answers — objective scoring is possible
+- Tests exist (`npx jest`) — correctness is automatable
+- JSONL logging captures every tool call — partial automation
+
+### Three Benchmark Tasks
+
+**Task A — Bug Fix with Root Cause** (tests root-cause vs band-aid)
+
+Start from clean checkout of `9a22294` (before the path traversal fix).
+
+Prompt:
+> "The `scanForLeaks` method in `core/keychain/manager.ts` has a security flaw in its file path validation loop. A file in `state/worktrees/clone-12` can bypass the sandbox boundary check for `state/worktrees/clone-1`. Find the root cause and fix it properly."
+
+Correct answer: `path.relative()` check. Band-aid answer: add `+ '/'` suffix to allowedPath. Any other answer: wrong.
+
+Scoring automation: `grep "path.relative\|path\.isAbsolute" core/keychain/manager.ts` — if found, root cause fix confirmed.
+
+**Task B — Multi-file Feature** (tests reading, convention adherence)
+
+Prompt:
+> "Wire the MCP transport layer in `core/memory_store/mempalace_adapter.ts`. The `connect()` method currently has a TODO stub. Implement it using `StdioClientTransport` from `@modelcontextprotocol/sdk/client/stdio.js` to spin up the MemPalace Python process. Add a unit test."
+
+Correct answer: `StdioClientTransport` with `command: "python3"`, proper `async connect()` pattern, test that mocks the transport. Must read `interface.ts` before editing.
+
+Scoring automation: `npx jest --testPathPattern=mempalace` pass/fail.
+
+**Task C — Cross-wiki Convention Update** (tests multi-file reading, no false edits)
+
+Prompt:
+> "The wiki has several pages that still reference '~170 tokens' for MemPalace wake-up. The correct number is 600-900 tokens. Find all references and update them. Do not change anything else."
+
+Correct answer: `concept-aaak-compression.md`, `concept-token-economics.md`, `segment-memory.md`, `tool-mempalace.md` — all 4 already corrected. Any new file touched = false positive.
+
+Scoring automation: `grep -r "170 tokens" wiki/` should return 0 matches. `grep -r "600-900" wiki/` should return 4+ matches. No extra files modified (check `git diff --name-only`).
+
+### Test Matrix
+
+| Run ID | Effort | Adaptive Thinking | Baseline? |
+|--------|--------|-------------------|-----------|
+| S-MED | medium | ON | ✅ This is current default |
+| S-HIGH | high | ON | — |
+| S-MAX | max | ON | — |
+| S-HIGH-NOADAPT | high | OFF | — |
+| S-MAX-NOADAPT | max | OFF | — |
+| OPUSPLAN | opusplan | ON | — |
+
+Run all against all 3 tasks. S-MED is the baseline — everything else is measured against it.
+
+### Scoring Rubric
+
+| Category | Weight | Automated? | How |
+|----------|--------|------------|-----|
+| Correctness | 30% | ✅ Partial | `npx jest` pass rate + grep for correct pattern |
+| Root cause vs band-aid | 20% | ✅ Task A | grep for `path.relative` vs `+ '/'` |
+| Convention adherence | 15% | ✅ Task C | git diff --name-only, no extra files |
+| Read-before-edit | 15% | ✅ JSONL | Count Read calls before first Edit in session JSONL |
+| Autonomy | 10% | ✅ JSONL | Count human turn messages in session JSONL |
+| Token efficiency | 10% | ✅ JSONL | Total token count from JSONL |
+
+### JSONL Scoring Script
+
+After each run, parse the `.claude/projects/` JSONL for the session:
+
+```bash
+python3 tools/benchmark_score.py --session <project-dir> --task A
+# Outputs:
+#   reads_before_first_edit: N
+#   human_turns: N
+#   total_tokens: N
+#   test_pass_rate: N% (runs npx jest)
 ```
-main         ← wiki + docs (65 pages, all reviews, architecture spec)
-opus-build   ← working TypeScript/Python code, 57 tests
-             ← 6 commits ahead of main
+
+Build `tools/benchmark_score.py` as Phase 0 setup task (before first run).
+
+### Run Commands
+
+```bash
+# Set up: checkout clean state
+cd /home/claudebot/clones/agent4wiki-opus-build-20260408
+git stash  # stash the security patches for Task A testing
+
+# S-MED (baseline — current default)
+claude --effort medium
+
+# S-HIGH
+claude --effort high
+
+# S-MAX
+claude --effort max
+
+# S-HIGH-NOADAPT
+CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1 claude --effort high
+
+# S-MAX-NOADAPT
+CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1 claude --effort max
+
+# OPUSPLAN
+claude --effort high
+# then: /model opusplan
 ```
 
-Pending: merge `opus-build` → `main` when MCP transport wired and vault hardened.
+**Run all during optimal window: 8 AM – 4 PM CEST.**
+
+---
+
+## Phase 2 — Context Window (5 runs)
+
+Run only after Phase 1 identifies the winning effort/thinking config.
+
+| Run ID | Context Setting | Effective Window |
+|--------|----------------|-----------------|
+| CTX-1M-83 | Default | ~830K |
+| CTX-1M-75 | AUTOCOMPACT_PCT=75 | ~750K |
+| CTX-1M-60 | AUTOCOMPACT_PCT=60 | ~600K |
+| CTX-400K | AUTO_COMPACT_WINDOW=400000 | ~400K |
+| CTX-200K | DISABLE_1M_CONTEXT=1 | ~166K |
+
+Use the same 3 benchmark tasks. Score the same way.
+
+**Boris's recommendation (Claude Code creator):** CTX-400K is likely the sweet spot — forces compaction before quality degrades while still fitting large codebases.
+
+---
+
+## Phase 3 — Lock In Config
+
+After Phase 1 + 2 analysis, write final config to `~/.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "[from results]",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "[from results]",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "[if CTX-400K won]"
+  }
+}
+```
+
+Add session-start command to watchdog launch if effort level is confirmed (e.g., append `--effort high` to watchdog command).
+
+---
+
+## Phase 4 — trace-mcp (After Phase 1+2 are stable)
+
+Install after config is locked — trace-mcp is a force multiplier but adds a variable. Don't introduce during benchmarking.
+
+```bash
+npm install -g trace-mcp
+trace-mcp init
+trace-mcp add  # in each project
+```
+
+Key benefit: 91% token reduction for code understanding via dependency graph (replaces brute-force file reading).
+
+---
+
+## Forge Integration (Long-term)
+
+This benchmarking plan is the seed of the Forge's `shadow_runner`:
+
+- Phase 1/2 = manual Forge A/B tests
+- Once shadow_runner is built: this runs automatically on every config change
+- The 5-win ratchet (from [[plan-forge-v01-benchmarking]]) will promote configs that win on composite score
+- Scoring script (`tools/benchmark_score.py`) becomes the evaluator's objective function
+
+**Build `benchmark_score.py` now** — it will be reused directly by the Forge evaluator.
+
+---
+
+## Timing
+
+| Phase | Effort | When |
+|-------|--------|------|
+| Phase 0 (quick-start config) | 30 min | Now — pending approval |
+| Build benchmark_score.py | 1 hour | Before Phase 1 |
+| Phase 1 (6 Sonnet runs) | 3-4 hours | Next 2-3 sessions, 8am-4pm CEST |
+| Phase 1 analysis | 1 hour | After runs |
+| Phase 2 (5 context runs) | 2-3 hours | After Phase 1 winner |
+| Lock config | 30 min | After Phase 2 |
+| trace-mcp | 1 hour | After config locked |
+| Forge integration | ongoing | Phase 7 |
+
+---
 
 ## Related Pages
 
-- [[plan-build-v1]] — original build spec (Phases 0-4 delivered)
-- [[review-gemini-code-review68]] — security patches rationale
-- [[review-mempalace-issues]] — MemPalace limitations, revised memory strategy
-- [[review-janitor-audit2]] — 17/25 health score, remaining RED findings
+- [[plan-forge-v01-benchmarking]] — original Forge benchmarking design (shadow runner, evaluator, ratchet)
+- [[concept-token-economics]] — model routing matrix this will populate
+- [[segment-forge]] — the production home for this benchmarking system
+- [[build-state-2026-04-08]] — current codebase state (benchmark target)
 </file>
 
 <file path="scripts/bootstrap-linux.sh">
@@ -1952,6 +2052,140 @@ wiki/index-decisions.md (loaded on demand)
 Phase 6 (Janitor) — the archive/compress operation is a Janitor responsibility. But the tier structure and file layout should be designed in Phase 1 so pages are organized correctly from the start.
 
 *See also: [[concept-wiki-pattern]], [[segment-janitor]], [[segment-memory]], [[segment-brain]]*
+</file>
+
+<file path="wiki/decisions/build-state-2026-04-08.md">
+# Build State — 2026-04-08
+
+> Snapshot of the full system as of end of day 2026-04-08.
+> Branch: `opus-build` — 6 commits ahead of `main`
+
+## What Is Real, Working Code
+
+All Phases 0-4 were built by Claude Opus 4.6 in a single session. Two security patches applied manually after Gemini code review (review-68).
+
+### Phase 0 — Compile Fixes ✅
+
+All TypeScript compile errors resolved. `tsc` exits 0. Commit: `7ee2534`.
+
+| Fix | File |
+|-----|------|
+| MissionBrief defined twice | Removed duplicate from keychain/manager.ts |
+| Missing `provisionEnvironment()` | Added to KeychainManager |
+| Missing `revokeEnvironment()` | Added to KeychainManager |
+| Missing `getScopeKeys()` | Added to KeychainManager |
+| Missing `writeSummary()` | Added to MemPalaceAdapter |
+| Missing `audit()` | Added to MemPalaceAdapter |
+| `MemoryTier` enum not used | Fixed readContext() signature |
+| Renamed `dispatcher.ts` → `router.ts` | Prevents Python name clash |
+
+### Phase 1 — Dispatcher + Janitor Integration ✅ 17 pytest
+
+Python dispatcher fully wired to Janitor. Commit: `845b74f`.
+
+- `dispatcher.py watch` loops, picks up task.json from `brain/inbox/`
+- Parses clone stdout for JSON handshake (reverse-iterate last line starting with `{`)
+- Calls `janitor_evaluate(handshake, retry_count)` — returns BLOCK/SUGGEST/NOTE
+- BLOCK → moved to `brain/failed/`, BLOCK alert via Bridge (Telegram + Email)
+- SUGGEST → re-queued with Janitor feedback appended (max 3 retries)
+- NOTE → moved to `brain/completed/`, ForgeRecord written to `forge/events.jsonl`
+- 17 pytest covering dispatch lifecycle, retry logic, BLOCK escalation
+
+### Phase 2 — Keychain Credentials ✅ 14 Jest
+
+Full credential lifecycle implemented. Commit: `842631c`.
+
+- `loadMasterVault()` reads from `.env` file (MVP — AES vault in Phase 5)
+- `provisionEnvironment(worktreePath, keys)` writes `.env` with `0o600` permissions
+- `revokeEnvironment(worktreePath)` deletes `.env`, runs `scanForLeaks()`
+- `scanForLeaks()` scans modified files with both exact-match and regex patterns
+- `buildScopedEnv(skill)` reads `config/scopes.yaml` — clones get only what they need
+- Security patches applied (see below): path traversal + entropy threshold
+- 14 Jest covering full credential lifecycle
+
+### Phase 3 — Clone Lifecycle ✅ 12 Jest
+
+Full clone spawn/run/teardown. Commit: `ca45996`.
+
+- `CloneSpawner.createWorktree()` creates git worktree, writes `setup.sh`, copies TASK.md template, registers in `state/worktrees/registry.json`
+- `CloneRunner.run()` executes `setup.sh → repomix → claude --print` session, reverse-iterates stdout to parse JSON handshake
+- `CloneTeardown` merges on NOTE, force-removes worktree, prunes branch, deregisters
+- 12 Jest: 6 unit (handshake parsing), 6 integration (real git worktrees)
+
+### Phase 4 — Brain + Full Pipeline ✅ 14 Jest
+
+First autonomous loop. Commit: `9a22294`.
+
+- `BrainPlanner.plan()` calls Haiku → `MissionBrief`
+- `triggerFullPipeline()` auto-writes `task.json` to `brain/inbox/`
+- `ComplexityClassifier` routes: DIRECT / BRAIN_ONLY / FULL_PIPELINE
+- `UserAgent.handleUserInput()` wired to classifier → appropriate pipeline
+- `ForgeRecord` written to `forge/events.jsonl` on NOTE
+- 14 Jest: injection, routing, pipeline, state
+
+### Security Patches (post-Gemini review-68)
+
+Commit: `3650a3f`
+
+| Patch | File | What was wrong |
+|-------|------|----------------|
+| Path traversal fix | `core/keychain/manager.ts:183` | `startsWith()` allows clone-1 to escape into clone-12 sandbox. Fixed with `path.relative()` — `..` or absolute = rejected |
+| Entropy threshold | `core/keychain/manager.ts:174` | `> 8` chars causes false-positive FAILED_REQUIRE_HUMAN on `DEBUG=true`, `PORT=3000`. Changed to `> 16` chars |
+
+14/14 keychain tests still green after patches.
+
+## What Remains (Known TODOs)
+
+| Item | File | Status |
+|------|------|--------|
+| MCP transport | `core/memory_store/mempalace_adapter.ts` | All methods are `// TODO` stubs. Wire `StdioClientTransport` when MemPalace MCP server confirmed running. Low priority — Brain falls back to wiki context. |
+| AES-256 vault | `core/keychain/manager.ts:loadMasterVault()` | MVP reads plain `.env`. Real vault (Argon2id key derivation, AES-256-GCM) is Phase 5. |
+| WikiScythe | `core/janitor/scythe.ts` | Contradiction detection must be V4-implemented (LLM semantic comparison). MemPalace KG only blocks exact duplicate triples. |
+| Fleet routing | `brain/dispatcher.py` | `target_node` field parsing not implemented. All tasks run on current node. |
+| Forge | `core/forge/` | All 4 files are stubs. Shadow runner, evaluator, ratchet, metrics DB for Phase 7. |
+| BitNet/User Agent | `core/user_agent/` | Always-on local model integration not wired. |
+
+## Test Summary
+
+| Phase | Tests | Status |
+|-------|-------|--------|
+| Phase 0 | tsc exits 0 | ✅ |
+| Phase 1 | 17 pytest | ✅ |
+| Phase 2 | 14 Jest | ✅ |
+| Phase 3 | 12 Jest | ✅ |
+| Phase 4 | 14 Jest | ✅ |
+| **Total** | **57 tests** | **✅ All green** |
+
+## Verified End-to-End Flow
+
+```
+User message → ComplexityClassifier → FULL_PIPELINE
+  → BrainPlanner.plan() (Haiku) → MissionBrief
+  → task.json written to brain/inbox/
+  → dispatcher.py watch picks up task
+  → CloneWorker: spawner → keychain provision → runner (claude session) → janitor evaluate → teardown
+  → ForgeRecord written to forge/events.jsonl
+  → Bridge delivers result via Telegram
+```
+
+DoD test confirmed: dispatcher → clone → Janitor → Bridge (Telegram + Email broadcast 200 OK).
+
+## Branch Status
+
+```
+main         ← wiki + docs (65 pages, all reviews, architecture spec)
+opus-build   ← working TypeScript/Python code, 57 tests
+             ← 6 commits ahead of main
+```
+
+Pending: merge `opus-build` → `main` when MCP transport wired and vault hardened.
+
+## Related Pages
+
+- [[plan-build-v1]] — original build spec (Phases 0-4 delivered)
+- [[review-gemini-code-review68]] — security patches rationale
+- [[review-mempalace-issues]] — MemPalace limitations, revised memory strategy
+- [[review-janitor-audit2]] — 17/25 health score, remaining RED findings
 </file>
 
 <file path="wiki/decisions/decision-brain-never-executes.md">
@@ -8355,7 +8589,7 @@ File: `janitor/audit-board.md` (persistent, append-only per cycle). Nothing is l
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-08
-> Total pages: 66
+> Total pages: 67
 > Sources ingested: 8 repos/articles + 1 architecture session + 13 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge
 
 ## Templates
@@ -8442,6 +8676,7 @@ File: `janitor/audit-board.md` (persistent, append-only per cycle). Nothing is l
 - [[review-mempalace-issues]] — MemPalace independent audit: 7 false README claims, AAAK is lossy (84.2%), wake-up 600-900 tokens not 170, contradiction detection nonexistent, 96.6% is raw ChromaDB. Architecture safe (MemoryStore interface). 5 pages corrected.
 - [[review-gemini-code-review68]] — Gemini review of opus-build branch: path traversal fix (path.relative), entropy 8→16. False positive: .env 0o600 already correct. MCP transport known TODO. 57 tests green.
 - [[build-state-2026-04-08]] — Full system snapshot: Phases 0-4 done (57 tests), 2 security patches, known TODOs (MCP transport, AES vault, WikiScythe). opus-build branch 6 commits ahead of main.
+- [[plan-forge-benchmarking]] — Full benchmark plan: 3 concrete tasks from Agent4wiki codebase, JSONL automation, Phase 1 (effort) + Phase 2 (context window) + Forge integration path.
 
 ## Log
 
@@ -8662,6 +8897,10 @@ Source: raw/gemini-code-branch-review68.md. Reviewer: Gemini. Scope: full opus-b
 ## [2026-04-08] state | build-state-2026-04-08.md — full system state snapshot
 
 Full state snapshot after Opus build + security patches. Phases 0-4 complete (57 tests, 6 commits on opus-build): Phase 0 compile fixes (tsc 0), Phase 1 dispatcher+Janitor (17 pytest), Phase 2 keychain credentials (14 Jest), Phase 3 clone lifecycle (12 Jest), Phase 4 brain+pipeline (14 Jest). Security patches applied: path.relative() traversal guard + entropy threshold 8→16. Known TODOs: MCP transport (mempalace_adapter.ts stubs), AES vault (MVP reads .env), WikiScythe contradiction detection (V4-layer LLM call), fleet routing (target_node not parsed), Forge (all stubs). First end-to-end loop confirmed: User message → Brain → Clone → Janitor → Bridge. README updated to current state. Pages created: [[build-state-2026-04-08]]. Index updated (66 pages).
+
+## [2026-04-08] ingest | claude-code-tuning-report.md — Opus 4.6 performance regression + benchmark plan
+
+Source: raw/claude-code-tuning-report.md. Background: Stella Laurenzo analysis (6,852 sessions, 234K tool calls) — Opus 4.6 adaptive thinking + medium effort default causing 70% Read:Edit ratio drop, 556% interrupt increase. Key levers: CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING, effort level, CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, context window size. Plan: Phase 0 (quick-start config: disable adaptive thinking + compact at 75%), Phase 1 (6 Sonnet effort runs), Phase 2 (5 context window runs), lock config, trace-mcp, Forge integration. Concrete benchmark tasks defined: Task A (path traversal bug fix — root cause test), Task B (MCP transport wiring), Task C (cross-wiki convention update). JSONL scoring script (tools/benchmark_score.py) to automate 4 of 6 scoring dimensions. Optimal run window: 8am-4pm CEST. Pages created: [[plan-forge-benchmarking]]. Index updated (67 pages).
 </file>
 
 </files>
