@@ -1,0 +1,20 @@
+{
+  "output": {
+    "filePath": "repomix.txt",
+    "style": "plain"
+  },
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "raw/",
+      "forge/events.jsonl",
+      "state/",
+      "*.jsonl",
+      "repomix*.txt",
+      "test-output.txt",
+      "wiki/",
+      "skills/"
+    ]
+  }
+}
