@@ -68,6 +68,7 @@ wiki/
     concept-wiki-pattern.md
     concept-wiki-tiering.md
   decisions/
+    build-state-2026-04-08.md
     decision-brain-never-executes.md
     decision-directory-scaffold.md
     decision-forge-independence.md
@@ -127,72 +128,138 @@ wiki/
 <files>
 This section contains the contents of the repository's files.
 
-<file path="wiki/decisions/review-gemini-code-review68.md">
-# Review — Gemini Code Review: opus-build Branch
+<file path="wiki/decisions/build-state-2026-04-08.md">
+# Build State — 2026-04-08
 
-> Date: 2026-04-08
-> Source: `raw/gemini-code-branch-review68.md`
-> Reviewer: Gemini
-> Scope: All Opus-built code — Phases 0-4 (5 commits, 57 tests)
-> Verdict: "90% solution" — 2 real findings patched, 1 false positive, 1 known TODO
+> Snapshot of the full system as of end of day 2026-04-08.
+> Branch: `opus-build` — 6 commits ahead of `main`
 
-## Summary
+## What Is Real, Working Code
 
-Gemini reviewed the `opus-build` branch (full repomix). Overall verdict: Opus correctly scaffolded the MemoryStore interface, KeychainManager logic, and clone lifecycle — but LLM-generated security checks had two vulnerabilities. Both patched and pushed. 14/14 keychain tests pass after fixes.
+All Phases 0-4 were built by Claude Opus 4.6 in a single session. Two security patches applied manually after Gemini code review (review-68).
 
-## Findings
+### Phase 0 — Compile Fixes ✅
 
-| # | Finding | Severity | Status |
-|---|---------|----------|--------|
-| 1 | Path traversal via `startsWith()` in scanForLeaks | Critical | ✅ Fixed — `path.relative()` |
-| 2 | `.env` missing `0o600` permissions | High | ✅ FALSE POSITIVE — Opus already used `0o600` |
-| 3 | Entropy threshold `> 8` causes false-positive leak alerts | Medium | ✅ Fixed — changed to `> 16` |
-| 4 | MCP transport layer: all stubs, no `StdioClientTransport` | High | ⏳ Known TODO — Phase 1 scope |
+All TypeScript compile errors resolved. `tsc` exits 0. Commit: `7ee2534`.
 
-## Finding 1 — Path Traversal (Critical) ✅ Fixed
+| Fix | File |
+|-----|------|
+| MissionBrief defined twice | Removed duplicate from keychain/manager.ts |
+| Missing `provisionEnvironment()` | Added to KeychainManager |
+| Missing `revokeEnvironment()` | Added to KeychainManager |
+| Missing `getScopeKeys()` | Added to KeychainManager |
+| Missing `writeSummary()` | Added to MemPalaceAdapter |
+| Missing `audit()` | Added to MemPalaceAdapter |
+| `MemoryTier` enum not used | Fixed readContext() signature |
+| Renamed `dispatcher.ts` → `router.ts` | Prevents Python name clash |
 
-`startsWith()` path check in `scanForLeaks` allows a file in `/state/worktrees/clone-12` to pass the `/state/worktrees/clone-1` sandbox boundary check.
+### Phase 1 — Dispatcher + Janitor Integration ✅ 17 pytest
 
-Fix: `path.relative()` — if result starts with `..` or is absolute, reject.
+Python dispatcher fully wired to Janitor. Commit: `845b74f`.
 
-```typescript
-// Before (vulnerable)
-if (!resolved.startsWith(path.resolve(worktreePath))) continue;
+- `dispatcher.py watch` loops, picks up task.json from `brain/inbox/`
+- Parses clone stdout for JSON handshake (reverse-iterate last line starting with `{`)
+- Calls `janitor_evaluate(handshake, retry_count)` — returns BLOCK/SUGGEST/NOTE
+- BLOCK → moved to `brain/failed/`, BLOCK alert via Bridge (Telegram + Email)
+- SUGGEST → re-queued with Janitor feedback appended (max 3 retries)
+- NOTE → moved to `brain/completed/`, ForgeRecord written to `forge/events.jsonl`
+- 17 pytest covering dispatch lifecycle, retry logic, BLOCK escalation
 
-// After (safe)
-const rel = path.relative(path.resolve(worktreePath), resolved);
-if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue;
+### Phase 2 — Keychain Credentials ✅ 14 Jest
+
+Full credential lifecycle implemented. Commit: `842631c`.
+
+- `loadMasterVault()` reads from `.env` file (MVP — AES vault in Phase 5)
+- `provisionEnvironment(worktreePath, keys)` writes `.env` with `0o600` permissions
+- `revokeEnvironment(worktreePath)` deletes `.env`, runs `scanForLeaks()`
+- `scanForLeaks()` scans modified files with both exact-match and regex patterns
+- `buildScopedEnv(skill)` reads `config/scopes.yaml` — clones get only what they need
+- Security patches applied (see below): path traversal + entropy threshold
+- 14 Jest covering full credential lifecycle
+
+### Phase 3 — Clone Lifecycle ✅ 12 Jest
+
+Full clone spawn/run/teardown. Commit: `ca45996`.
+
+- `CloneSpawner.createWorktree()` creates git worktree, writes `setup.sh`, copies TASK.md template, registers in `state/worktrees/registry.json`
+- `CloneRunner.run()` executes `setup.sh → repomix → claude --print` session, reverse-iterates stdout to parse JSON handshake
+- `CloneTeardown` merges on NOTE, force-removes worktree, prunes branch, deregisters
+- 12 Jest: 6 unit (handshake parsing), 6 integration (real git worktrees)
+
+### Phase 4 — Brain + Full Pipeline ✅ 14 Jest
+
+First autonomous loop. Commit: `9a22294`.
+
+- `BrainPlanner.plan()` calls Haiku → `MissionBrief`
+- `triggerFullPipeline()` auto-writes `task.json` to `brain/inbox/`
+- `ComplexityClassifier` routes: DIRECT / BRAIN_ONLY / FULL_PIPELINE
+- `UserAgent.handleUserInput()` wired to classifier → appropriate pipeline
+- `ForgeRecord` written to `forge/events.jsonl` on NOTE
+- 14 Jest: injection, routing, pipeline, state
+
+### Security Patches (post-Gemini review-68)
+
+Commit: `3650a3f`
+
+| Patch | File | What was wrong |
+|-------|------|----------------|
+| Path traversal fix | `core/keychain/manager.ts:183` | `startsWith()` allows clone-1 to escape into clone-12 sandbox. Fixed with `path.relative()` — `..` or absolute = rejected |
+| Entropy threshold | `core/keychain/manager.ts:174` | `> 8` chars causes false-positive FAILED_REQUIRE_HUMAN on `DEBUG=true`, `PORT=3000`. Changed to `> 16` chars |
+
+14/14 keychain tests still green after patches.
+
+## What Remains (Known TODOs)
+
+| Item | File | Status |
+|------|------|--------|
+| MCP transport | `core/memory_store/mempalace_adapter.ts` | All methods are `// TODO` stubs. Wire `StdioClientTransport` when MemPalace MCP server confirmed running. Low priority — Brain falls back to wiki context. |
+| AES-256 vault | `core/keychain/manager.ts:loadMasterVault()` | MVP reads plain `.env`. Real vault (Argon2id key derivation, AES-256-GCM) is Phase 5. |
+| WikiScythe | `core/janitor/scythe.ts` | Contradiction detection must be V4-implemented (LLM semantic comparison). MemPalace KG only blocks exact duplicate triples. |
+| Fleet routing | `brain/dispatcher.py` | `target_node` field parsing not implemented. All tasks run on current node. |
+| Forge | `core/forge/` | All 4 files are stubs. Shadow runner, evaluator, ratchet, metrics DB for Phase 7. |
+| BitNet/User Agent | `core/user_agent/` | Always-on local model integration not wired. |
+
+## Test Summary
+
+| Phase | Tests | Status |
+|-------|-------|--------|
+| Phase 0 | tsc exits 0 | ✅ |
+| Phase 1 | 17 pytest | ✅ |
+| Phase 2 | 14 Jest | ✅ |
+| Phase 3 | 12 Jest | ✅ |
+| Phase 4 | 14 Jest | ✅ |
+| **Total** | **57 tests** | **✅ All green** |
+
+## Verified End-to-End Flow
+
+```
+User message → ComplexityClassifier → FULL_PIPELINE
+  → BrainPlanner.plan() (Haiku) → MissionBrief
+  → task.json written to brain/inbox/
+  → dispatcher.py watch picks up task
+  → CloneWorker: spawner → keychain provision → runner (claude session) → janitor evaluate → teardown
+  → ForgeRecord written to forge/events.jsonl
+  → Bridge delivers result via Telegram
 ```
 
-File: `core/keychain/manager.ts:183`
+DoD test confirmed: dispatcher → clone → Janitor → Bridge (Telegram + Email broadcast 200 OK).
 
-## Finding 2 — .env Permissions ✅ False Positive
+## Branch Status
 
-Gemini predicted Opus would omit file permissions. Opus wrote `{ mode: 0o600 }` correctly. No action needed.
-
-## Finding 3 — Entropy Threshold ✅ Fixed
-
-`filter(v => v.length > 8)` triggers false alarms on short vault values (`DEBUG=true`, `PORT=3000`, etc.) — circuit-breaks the Janitor on every clean clone run. Changed to `> 16`: covers all real tokens (sk-ant-, sk-, AKIA, sk_live_) while ignoring config values.
-
-File: `core/keychain/manager.ts:174`
-
-## Finding 4 — MCP Transport ⏳ Known TODO
-
-`mempalace_adapter.ts` has all methods stubbed (`// TODO: Initialize MCP client`). Build brief scope was Phase 1 = interface, not full Python bridge. Wire `StdioClientTransport` when MemPalace MCP server is confirmed running:
-
-```typescript
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-const transport = new StdioClientTransport({ command: "python3", args: ["-m", "mempalace", "--mcp"] });
-await this.client.connect(transport);
+```
+main         ← wiki + docs (65 pages, all reviews, architecture spec)
+opus-build   ← working TypeScript/Python code, 57 tests
+             ← 6 commits ahead of main
 ```
 
-## Context Note
+Pending: merge `opus-build` → `main` when MCP transport wired and vault hardened.
 
-Gemini suggested "proceed to Phase 3" — Opus already built all 5 phases. Gemini reviewed the repomix without build history context. The code is more complete than Gemini assumed.
+## Related Pages
 
-## Commit
-
-`3650a3f` on `opus-build` — both patches applied, 57 tests green.
+- [[plan-build-v1]] — original build spec (Phases 0-4 delivered)
+- [[review-gemini-code-review68]] — security patches rationale
+- [[review-mempalace-issues]] — MemPalace limitations, revised memory strategy
+- [[review-janitor-audit2]] — 17/25 health score, remaining RED findings
 </file>
 
 <file path="scripts/bootstrap-linux.sh">
@@ -4312,6 +4379,74 @@ This works because `teardown.ts` only merges on `NOTE`. But using `BLOCK` to mea
 *See also: [[segment-janitor]], [[decision-typescript-python]], [[concept-dispatcher]]*
 </file>
 
+<file path="wiki/decisions/review-gemini-code-review68.md">
+# Review — Gemini Code Review: opus-build Branch
+
+> Date: 2026-04-08
+> Source: `raw/gemini-code-branch-review68.md`
+> Reviewer: Gemini
+> Scope: All Opus-built code — Phases 0-4 (5 commits, 57 tests)
+> Verdict: "90% solution" — 2 real findings patched, 1 false positive, 1 known TODO
+
+## Summary
+
+Gemini reviewed the `opus-build` branch (full repomix). Overall verdict: Opus correctly scaffolded the MemoryStore interface, KeychainManager logic, and clone lifecycle — but LLM-generated security checks had two vulnerabilities. Both patched and pushed. 14/14 keychain tests pass after fixes.
+
+## Findings
+
+| # | Finding | Severity | Status |
+|---|---------|----------|--------|
+| 1 | Path traversal via `startsWith()` in scanForLeaks | Critical | ✅ Fixed — `path.relative()` |
+| 2 | `.env` missing `0o600` permissions | High | ✅ FALSE POSITIVE — Opus already used `0o600` |
+| 3 | Entropy threshold `> 8` causes false-positive leak alerts | Medium | ✅ Fixed — changed to `> 16` |
+| 4 | MCP transport layer: all stubs, no `StdioClientTransport` | High | ⏳ Known TODO — Phase 1 scope |
+
+## Finding 1 — Path Traversal (Critical) ✅ Fixed
+
+`startsWith()` path check in `scanForLeaks` allows a file in `/state/worktrees/clone-12` to pass the `/state/worktrees/clone-1` sandbox boundary check.
+
+Fix: `path.relative()` — if result starts with `..` or is absolute, reject.
+
+```typescript
+// Before (vulnerable)
+if (!resolved.startsWith(path.resolve(worktreePath))) continue;
+
+// After (safe)
+const rel = path.relative(path.resolve(worktreePath), resolved);
+if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue;
+```
+
+File: `core/keychain/manager.ts:183`
+
+## Finding 2 — .env Permissions ✅ False Positive
+
+Gemini predicted Opus would omit file permissions. Opus wrote `{ mode: 0o600 }` correctly. No action needed.
+
+## Finding 3 — Entropy Threshold ✅ Fixed
+
+`filter(v => v.length > 8)` triggers false alarms on short vault values (`DEBUG=true`, `PORT=3000`, etc.) — circuit-breaks the Janitor on every clean clone run. Changed to `> 16`: covers all real tokens (sk-ant-, sk-, AKIA, sk_live_) while ignoring config values.
+
+File: `core/keychain/manager.ts:174`
+
+## Finding 4 — MCP Transport ⏳ Known TODO
+
+`mempalace_adapter.ts` has all methods stubbed (`// TODO: Initialize MCP client`). Build brief scope was Phase 1 = interface, not full Python bridge. Wire `StdioClientTransport` when MemPalace MCP server is confirmed running:
+
+```typescript
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+const transport = new StdioClientTransport({ command: "python3", args: ["-m", "mempalace", "--mcp"] });
+await this.client.connect(transport);
+```
+
+## Context Note
+
+Gemini suggested "proceed to Phase 3" — Opus already built all 5 phases. Gemini reviewed the repomix without build history context. The code is more complete than Gemini assumed.
+
+## Commit
+
+`3650a3f` on `opus-build` — both patches applied, 57 tests green.
+</file>
+
 <file path="wiki/decisions/review-gemini-review1.md">
 # External Review: Gemini — V4 Architecture Deep Dive
 
@@ -8220,7 +8355,7 @@ File: `janitor/audit-board.md` (persistent, append-only per cycle). Nothing is l
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-08
-> Total pages: 65
+> Total pages: 66
 > Sources ingested: 8 repos/articles + 1 architecture session + 13 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge
 
 ## Templates
@@ -8306,6 +8441,7 @@ File: `janitor/audit-board.md` (persistent, append-only per cycle). Nothing is l
 - [[review-janitor-audit2]] — Full repo Janitor audit: 17/25 health score (up from 14). 5 RED (R1-R3 in plan, R3 fixed), 11 YELLOW (Y1/Y3/Y7/Y11 fixed, Y2 fixed with new pages), 6 GREEN. Compile-blocking state unchanged.
 - [[review-mempalace-issues]] — MemPalace independent audit: 7 false README claims, AAAK is lossy (84.2%), wake-up 600-900 tokens not 170, contradiction detection nonexistent, 96.6% is raw ChromaDB. Architecture safe (MemoryStore interface). 5 pages corrected.
 - [[review-gemini-code-review68]] — Gemini review of opus-build branch: path traversal fix (path.relative), entropy 8→16. False positive: .env 0o600 already correct. MCP transport known TODO. 57 tests green.
+- [[build-state-2026-04-08]] — Full system snapshot: Phases 0-4 done (57 tests), 2 security patches, known TODOs (MCP transport, AES vault, WikiScythe). opus-build branch 6 commits ahead of main.
 
 ## Log
 
@@ -8522,6 +8658,10 @@ Source: raw/mempalace-issues-impact.md. Researchers: lhl (code review), gizmax (
 ## [2026-04-08] review | gemini-code-branch-review68.md — Gemini security review of opus-build branch
 
 Source: raw/gemini-code-branch-review68.md. Reviewer: Gemini. Scope: full opus-build repomix (5 phases, 57 tests). 4 findings: (1) CRITICAL path traversal — startsWith() allows clone-1 to bypass clone-12 sandbox boundary; FIXED with path.relative() in core/keychain/manager.ts:183; (2) HIGH .env permissions — FALSE POSITIVE, Opus already used 0o600 correctly; (3) MEDIUM entropy threshold — filter(v.length > 8) causes false-positive FAILED_REQUIRE_HUMAN on short vault values like DEBUG=true; FIXED to > 16 chars; (4) HIGH MCP transport — all mempalace_adapter.ts methods are stubs; KNOWN TODO from Phase 1 scope, wire StdioClientTransport when MemPalace confirmed running. Commit 3650a3f pushed to opus-build. 14/14 keychain tests pass. Pages created: [[review-gemini-code-review68]]. Index updated (65 pages).
+
+## [2026-04-08] state | build-state-2026-04-08.md — full system state snapshot
+
+Full state snapshot after Opus build + security patches. Phases 0-4 complete (57 tests, 6 commits on opus-build): Phase 0 compile fixes (tsc 0), Phase 1 dispatcher+Janitor (17 pytest), Phase 2 keychain credentials (14 Jest), Phase 3 clone lifecycle (12 Jest), Phase 4 brain+pipeline (14 Jest). Security patches applied: path.relative() traversal guard + entropy threshold 8→16. Known TODOs: MCP transport (mempalace_adapter.ts stubs), AES vault (MVP reads .env), WikiScythe contradiction detection (V4-layer LLM call), fleet routing (target_node not parsed), Forge (all stubs). First end-to-end loop confirmed: User message → Brain → Clone → Janitor → Bridge. README updated to current state. Pages created: [[build-state-2026-04-08]]. Index updated (66 pages).
 </file>
 
 </files>

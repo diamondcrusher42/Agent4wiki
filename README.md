@@ -40,7 +40,7 @@ Full origin story and design philosophy: [wiki/decisions/decision-system-philoso
 |-------|-----------|
 | Core orchestration | TypeScript + Node.js (async I/O, MCP SDK native) |
 | Clone execution | Python 3.9+ (AI/ML ecosystem, subprocess control) |
-| Memory | MemPalace MCP server (96.6% LongMemEval, AAAK compression) |
+| Memory | MemPalace MCP server (ChromaDB 96.6% R@5 raw; AAAK mode 84.2% — lossy) |
 | Context packing | Repomix (70% token reduction) |
 | Execution isolation | git worktrees (parallel, sandboxed) |
 | Credentials | JIT injection — process memory only, try/finally lifecycle |
@@ -52,15 +52,19 @@ Full origin story and design philosophy: [wiki/decisions/decision-system-philoso
 
 ## What's Next
 
-| Stage | What |
-|-------|------|
-| **This week** | Phase 0: fix 8 compile errors. Phase 1-2: dispatcher paths + credential MVP |
-| **First loop** | `triggerFullPipeline()` auto-writes to inbox → first end-to-end autonomous run |
-| **Fleet** | Bootstrap second node, `target_node` routing, fleet health droid |
-| **Forge** | Shadow runner → evaluator → ratchet → self-improving templates |
-| **WikiScythe** | Automated wiki maintenance — prune stale, flag contradictions |
+Phases 0-4 built by Claude Opus 4.6 (2026-04-08). First end-to-end autonomous loop confirmed.
 
-Full build plan with exact code specs + unit tests: [wiki/decisions/plan-build-v1.md](wiki/decisions/plan-build-v1.md)
+| Stage | What | Status |
+|-------|------|--------|
+| **Phase 0-4** | Compile fixes, dispatcher, credentials, clone lifecycle, brain pipeline | ✅ Done — 57 tests |
+| **Security** | Path traversal fix, entropy threshold, `.env` 0o600 | ✅ Done — Gemini review-68 |
+| **MCP transport** | Wire `StdioClientTransport` in `mempalace_adapter.ts` | 🔧 Next |
+| **Fleet** | Bootstrap second node, `target_node` routing, fleet health droid | ⏳ Phase 5 |
+| **Forge** | Shadow runner → evaluator → ratchet → self-improving templates | ⏳ Phase 7 |
+| **WikiScythe** | V4-implemented contradiction detection via LLM semantic comparison | ⏳ Phase 6 |
+| **Merge to main** | After MCP transport wired + vault hardened | ⏳ Pending |
+
+Full build plan: [wiki/decisions/plan-build-v1.md](wiki/decisions/plan-build-v1.md) · Build state: [wiki/decisions/build-state-2026-04-08.md](wiki/decisions/build-state-2026-04-08.md)
 
 **Model governance:** Claude Sonnet 4.6 is the default for all tasks in the first implementation — establishing a benchmark baseline before optimising downward (Haiku → Ollama → BitNet). The Forge drives all model transitions through A/B testing and the 5-win ratchet. See [decision-model-governance.md](wiki/decisions/decision-model-governance.md).
 
@@ -82,153 +86,39 @@ Bridge (The Output Layer)   — everything the user sees; Telegram relay; never 
 
 ---
 
-## Current State (as of 2026-04-07)
+## Current State (as of 2026-04-08)
 
-### What is real, working code
+### Working code (opus-build branch — 6 commits, 57 tests)
 
-| Component | File | Status |
-|-----------|------|--------|
-| MemoryStore interface | `core/memory_store/interface.ts` | ✓ Complete — V2 with MemoryTier, writeSummary, audit |
-| Keychain JIT injection | `core/keychain/manager.ts` | ✓ Logic complete — vault loading is a stub (see issues) |
-| Credential leak scanner | `core/keychain/scanner.ts` | ✓ Pattern config in `config/patterns.yaml` — scanner stub |
-| Complexity classifier | `core/routing/classifier.ts` | ✓ Complete — regex-based DIRECT/BRAIN_ONLY/FULL_PIPELINE |
-| Janitor auditor | `core/janitor/auditor.ts` | ✓ Complete V2 — structural checks, ForgeRecord output |
-| Python dispatcher | `brain/dispatcher.py` | ✓ Watch loop works — Janitor integration missing |
-| Task format spec | `brain/TASK-FORMAT.md` | ✓ 6 task types documented |
-| Code clone template | `templates/code-clone-TASK.md` | ✓ V2 — network scope, BLOCKED_IMPOSSIBLE, handshake |
-| Keychain config | `core/keychain/config/*.yaml` | ✓ scopes, fallback, patterns, rotation |
-| Bootstrap scripts | `scripts/bootstrap-linux.sh` | ✓ Installs full node in one command |
-| Bootstrap scripts | `scripts/bootstrap-windows.ps1` | ✓ Windows equivalent with Task Scheduler |
-| .env template | `.env.example` | ✓ All required vars documented |
+| Component | Status |
+|-----------|--------|
+| TypeScript compiler | ✅ `tsc` exits 0 — all compile errors fixed |
+| Python dispatcher + Janitor | ✅ 17 pytest — BLOCK/SUGGEST/NOTE loop wired |
+| Keychain JIT credentials | ✅ 14 Jest — provision, revoke, scanForLeaks, scoped env |
+| Clone lifecycle (spawn/run/teardown) | ✅ 12 Jest — real git worktrees, handshake parsing |
+| Brain + full pipeline | ✅ 14 Jest — BrainPlanner, ComplexityClassifier, ForgeRecord |
+| Security patches | ✅ path.relative() traversal guard, entropy threshold >16 |
+| End-to-end loop | ✅ User message → Brain → Clone → Janitor → Bridge (Telegram + Email) |
 
-### What is a stub (throws NotImplementedError)
+### Known TODOs (not blocking)
 
-| Component | File | What's missing |
-|-----------|------|----------------|
-| Vault decryption | `core/keychain/manager.ts:loadMasterVault()` | AES-256 decrypt — currently returns `{}` |
-| Credential scanner | `core/keychain/manager.ts:scanForLeaks()` | Regex scan — currently returns `true` always |
-| MemPalace adapter | `core/memory_store/mempalace_adapter.ts` | `writeSummary()` and `audit()` not implemented |
-| Brain planner | `core/brain/planner.ts` | Sequential Thinking MCP call |
-| Brain router | `core/brain/dispatcher.ts` | `getScopeKeys()` call on Keychain (method missing) |
-| Prompt builder | `core/brain/prompt_builder.ts` | File reads work — template variable injection |
-| Clone spawner | `core/clones/lifecycle/spawner.ts` | `git worktree add` |
-| Clone runner | `core/clones/lifecycle/runner.ts` | setup.sh + Repomix + Claude launch |
-| Clone teardown | `core/clones/lifecycle/teardown.ts` | Merge + worktree remove + branch prune |
-| Clone worker | `core/clones/clone_worker.ts` | Orchestrates stubs above |
-| WikiScythe | `core/janitor/scythe.ts` | All three operations (delete/contradiction/orphan) |
-| Forge (all 4 files) | `core/forge/` | Shadow runner, evaluator, ratchet, metrics DB |
-| CLI | `bin/agent4.ts` | Wires up stubs — nothing implemented yet |
-| User Agent | `core/user_agent/agent.ts` | BitNet integration, state persistence |
+| Item | Notes |
+|------|-------|
+| `mempalace_adapter.ts` MCP transport | All methods stubbed. Wire `StdioClientTransport` when MemPalace confirmed running. |
+| `loadMasterVault()` | MVP reads plain `.env`. Full AES-256-GCM vault in Phase 5. |
+| WikiScythe contradiction detection | Must be V4-implemented via LLM semantic comparison — MemPalace KG doesn't do this. |
+| Fleet routing | `target_node` field not yet parsed. All tasks run on current node. |
+| Forge | All 4 files are stubs. Phase 7. |
 
-### Known bugs (from code-audit-1)
-
-**Compile-blocking (TypeScript won't build):**
-- `clone_worker.ts` calls `keychain.provisionEnvironment()` — method doesn't exist
-- `clone_worker.ts` calls `keychain.revokeEnvironment()` — method doesn't exist
-- `brain/dispatcher.ts` calls `keychain.getScopeKeys()` — method doesn't exist
-- `mempalace_adapter.ts` missing `writeSummary()` + `audit()` — interface not satisfied
-- `MissionBrief` defined twice with incompatible shapes (manager.ts vs planner.ts)
-
-**Security (must fix before any real credentials):**
-- `loadMasterVault()` returns `{}` — all credentials fail
-- `scanForLeaks()` returns `true` — scanner is off
-
-**Structural:**
-- Python dispatcher paths don't match repo structure (soul.md, state.json, templates/)
-- Python dispatcher has no Janitor integration — BLOCK/SUGGEST/NOTE bypassed
-- Templates exist in 3 locations, none canonical
-- `TypeScript dispatcher.ts` name clashes with Python `dispatcher.py` — rename to `router.ts`
-
-Full audit: `wiki/decisions/review-code-audit-1.md`
+Full state: [wiki/decisions/build-state-2026-04-08.md](wiki/decisions/build-state-2026-04-08.md) · Prior audit: [wiki/decisions/review-code-audit-1.md](wiki/decisions/review-code-audit-1.md)
 
 ---
 
-## What's Needed to Start Running
-
-### Phase 0 — Fix compile errors (1-2 days)
-
-These must be done before anything else compiles:
-
-```
-[ ] Delete MissionBrief from keychain/manager.ts — use brain/planner.ts version only
-[ ] Add KeychainManager.provisionEnvironment(path, keys) method
-[ ] Add KeychainManager.revokeEnvironment(path) method
-[ ] Add KeychainManager.getScopeKeys(skill) — reads config/scopes.yaml
-[ ] Add MemPalaceAdapter.writeSummary() — store InteractionDigest
-[ ] Add MemPalaceAdapter.audit() — return AuditReport
-[ ] Fix MemPalaceAdapter.readContext(tier: MemoryTier) — use enum not raw string
-[ ] Rename core/brain/dispatcher.ts → core/brain/router.ts (avoid Python name clash)
-```
-
-### Phase 1 — Minimal working dispatcher (1 week)
-
-The Python dispatcher is the only thing that actually runs. Make it complete:
-
-```
-[ ] Fix AGENT_BASE_DIR env var to point to actual repo root
-[ ] Fix SOUL_MD path: wiki/Soul.md (not user-agent/profile/soul.md)
-[ ] Fix USER_STATE path: state/user_agent/state.json
-[ ] Fix TEMPLATES path: core/clones/templates/ (after consolidating)
-[ ] Consolidate templates: move templates/code-clone-TASK.md → core/clones/templates/code_task.md
-[ ] Add Janitor integration to dispatcher.py:
-      - Parse handshake JSON from clone stdout
-      - Call janitor_evaluate(handshake, retry_count)
-      - BLOCK → move to failed/, optionally re-queue
-      - SUGGEST → re-queue with janitor_feedback appended to objective
-      - NOTE → move to completed/, write ForgeRecord
-[ ] Export MAX_RETRIES=3 constant (shared between Janitor and dispatcher)
-```
-
-### Phase 2 — Credential system (1 week)
-
-```
-[ ] Implement loadMasterVault() — read from state/keychain/vault.enc
-    Minimum MVP: AES-256 with password from env var (not full Argon2id yet)
-[ ] Implement scanForLeaks() — regex scan using config/patterns.yaml
-[ ] Test: provision a clone with a real ANTHROPIC_API_KEY, verify it runs
-[ ] Test: scanForLeaks catches a hardcoded key in test output
-```
-
-### Phase 3 — Clone lifecycle (1-2 weeks)
-
-```
-[ ] Implement CloneSpawner.createWorktree():
-      git worktree add state/worktrees/<id> -b clone/<id>
-[ ] Implement CloneRunner.runSetup(): exec setup.sh in worktree
-[ ] Implement CloneRunner.runRepomix(): npx repomix in worktree
-[ ] Implement CloneRunner.launchClause(): spawn claude --print -p <prompt>
-[ ] Implement CloneTeardown.mergeWorktree(): git add -A + commit + merge to main
-[ ] Implement CloneTeardown.removeWorktree(): git worktree remove --force
-[ ] Wire CloneWorker.execute() end-to-end — full lifecycle test
-```
-
-### Phase 4 — Brain planning (1-2 weeks)
-
-```
-[ ] Implement BrainPlanner.plan() — Sequential Thinking MCP call
-[ ] Implement PromptBuilder.build() — template variable injection
-[ ] Implement BrainRouter.dispatch() — reads scopes.yaml, selects template
-[ ] Wire Brain → CloneWorker end-to-end: plan → dispatch → execute
-```
-
-### Phase 5 — Fleet (when Phase 3 is stable)
-
-```
-[ ] Bootstrap a second node using scripts/bootstrap-linux.sh
-[ ] Add target_node field to Task schema
-[ ] Add node filtering to dispatcher.py (skip tasks for other nodes)
-[ ] Implement fleet health droid: brain/fleet_health_droid.py
-[ ] Test: dispatch code task to KEVIN, gui task to MIKE
-```
-
----
-
-## Quick Start (what you can run today)
+## Quick Start
 
 ```bash
 # 1. Bootstrap this machine
 bash scripts/bootstrap-linux.sh --node-type code
-# or on Windows: .\scripts\bootstrap-windows.ps1 -NodeType code
 
 # 2. Fill in credentials
 cp .env.example .env
@@ -241,18 +131,13 @@ claude auth
 source venv/bin/activate
 python brain/dispatcher.py watch
 
-# 5. Drop a task file into brain/inbox/ to trigger a clone
+# 5. Drop a task into brain/inbox/ to trigger a clone
 cat > brain/inbox/test-001.json << 'EOF'
 {
-  "id": "test-001",
-  "type": "clone",
-  "skill": "code",
-  "objective": "Create a hello.py that prints hello world and run it",
-  "source": "manual",
-  "priority": 3,
-  "required_keys": [],
-  "wiki_pages": [],
-  "constraints": ["only create files in /tmp/test-001/"],
+  "id": "test-001", "type": "clone", "skill": "code",
+  "objective": "Create hello.py that prints hello world and run it",
+  "source": "manual", "priority": 3,
+  "required_keys": [], "wiki_pages": [], "constraints": ["only create files in /tmp/test-001/"],
   "timeout_minutes": 10
 }
 EOF
@@ -262,6 +147,8 @@ python brain/dispatcher.py status
 ```
 
 ---
+
+
 
 ## Repository Structure
 
@@ -311,7 +198,7 @@ Agent4wiki/
 ├── forge/                  ← Forge output (forge/events.jsonl gitignored)
 ├── raw/                    ← Immutable source documents (never edit, only append)
 │
-└── wiki/                   ← The Brain's OS (fully committed — 63 pages)
+└── wiki/                   ← The Brain's OS (fully committed — 65 pages)
     ├── CLAUDE.md           ← Wiki schema, wikilink convention, tiering, token budget
     ├── Soul.md             ← Agent identity: voice, values, delegation style
     ├── index.md            ← Master catalog
@@ -363,8 +250,8 @@ User message (Telegram)
 | **Why / How** | [decision-system-philosophy.md](wiki/decisions/decision-system-philosophy.md) — origin story, design decisions, roadmap |
 | **Build plan** | [plan-build-v1.md](wiki/decisions/plan-build-v1.md) — Phase 0-4 with exact code + unit tests |
 | **Opus brief** | [raw/opus-build-brief.md](raw/opus-build-brief.md) — full handoff: 7 segments, decisions, model governance, DoD |
-| **All pages** | [wiki/index.md](wiki/index.md) — 63 pages total |
+| **All pages** | [wiki/index.md](wiki/index.md) — 65 pages total |
 
 ---
 
-*63 pages · last updated 2026-04-08 · sources: 8 repos/articles + 1 architecture session + 11 external reviews + 2 build plans + 1 research PDF + 1 multi-channel bridge*
+*65 pages · last updated 2026-04-08 · sources: 8 repos/articles + 1 architecture session + 13 external reviews + 2 build plans + 1 research PDF + 1 multi-channel bridge*
