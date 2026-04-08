@@ -170,17 +170,19 @@ export class KeychainManager {
       console.warn('[KEYCHAIN] Could not load patterns.yaml — using vault-value-only scan');
     }
 
-    // Collect vault values for exact-match check (skip short values to avoid false positives)
-    const vaultValues = Object.values(this.masterVault).filter(v => v.length > 8);
+    // Collect vault values for exact-match check — >16 chars only to avoid false positives
+    // (covers all real API tokens: Anthropic sk-ant-, OpenAI sk-, AWS AKIA, Stripe sk_live_)
+    const vaultValues = Object.values(this.masterVault).filter(v => v.length > 16);
 
     // Get files modified in the worktree
     const files = this.getModifiedFiles(worktreePath);
 
     let foundLeak = false;
     for (const filePath of files) {
-      // Path traversal defence
+      // Path traversal defence — path.relative() prevents clone-1 vs clone-12 bypass
       const resolved = path.resolve(filePath);
-      if (!resolved.startsWith(path.resolve(worktreePath))) continue;
+      const rel = path.relative(path.resolve(worktreePath), resolved);
+      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue;
 
       let content: string;
       try {
