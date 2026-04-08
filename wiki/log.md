@@ -2,6 +2,10 @@
 
 Chronological record of all wiki operations. Append-only.
 
+## [2026-04-09] build | Forge wiki created (4 pages)
+
+forge-home, forge-benchmarks, forge-experiments, forge-improvement-log. Benchmarks: Phase 1 effort routing, Phase 2 context window, planned 2-tier Janitor. Improvement log: 9 entries from v6-v9. Experiment queue: 5 items queued. Index updated to 109 pages.
+
 ## [2026-04-09] decision | 2-tier Janitor benchmark plan (Forge)
 
 decision-janitor-tiered-benchmark: Jure proposed testing Janitor quality across Haiku/Sonnet/Opus × effort levels. Hypothesis: Tier 1 (Haiku max or Sonnet medium) catches objective findings; Tier 2 (Opus max+extended) additionally catches semantic issues (design contradictions, silent failures, confusion traps). 5 concrete test cases defined. Decision gate: if Tier 1 ≥ 4/5 → single tier; gap ≥ 2 → 2-tier routing in dispatcher. janitor upgrades.md also updated.

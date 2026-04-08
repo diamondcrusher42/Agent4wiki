@@ -1,12 +1,19 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-09
-> Total pages: 105
+> Total pages: 109
 > Sources ingested: 8 repos/articles + 1 architecture session + 14 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
 
 ## Templates
 
 - `templates/code-clone-TASK.md` — Code clone mission brief V1. Injection variables, Janitor handshake JSON, Repomix trap. See concept-clone-skill-templates.
+
+## Forge Wiki
+
+- [[forge-home]] — Forge wiki index: current state of all 7 loops, key decisions, links to all sub-pages
+- [[forge-benchmarks]] — All benchmarks run: Phase 1 effort routing, Phase 2 context window, planned 2-tier Janitor
+- [[forge-experiments]] — Active experiments, prioritized queue (Q1-Q5), past experiment outcomes
+- [[forge-improvement-log]] — Append-only log of every improvement: proposed, tested, promoted or rejected
 
 ## Segments
 
