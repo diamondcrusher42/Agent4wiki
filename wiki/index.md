@@ -21,7 +21,7 @@
 ## Concepts
 
 - [[concept-shadow-benchmarking]] — Running alternatives against production to find better approaches.
-- [[concept-token-economics]] — How tokens are budgeted across the six segments.
+- [[concept-token-economics]] — How tokens are budgeted across the seven segments.
 - [[concept-mission-briefs]] — How the Brain instructs Clones. Not conversations — precision briefs.
 - [[concept-wiki-pattern]] — Karpathy's LLM Wiki: compile knowledge, don't re-derive it.
 - [[concept-aaak-compression]] — MemPalace's 30x lossless compression dialect for AI context.

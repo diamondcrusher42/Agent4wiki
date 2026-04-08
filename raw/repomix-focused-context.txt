@@ -32,7 +32,7 @@ The content is organized as follows:
 <notes>
 - Some files may have been excluded based on .gitignore rules and Repomix's configuration
 - Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
-- Only files matching these patterns are included: core/**, brain/**, templates/**, bin/**, scripts/**, wiki/segments/**, wiki/concepts/**, wiki/decisions/plan-build-v1.md, wiki/decisions/review-code-audit-1.md, wiki/decisions/decision-*.md, wiki/Soul.md, wiki/CLAUDE.md, wiki/index.md, .env.example
+- Only files matching these patterns are included: core/**, brain/**, wiki/segments/**, wiki/concepts/**, wiki/decisions/plan-build-v1.md, wiki/decisions/decision-*.md, templates/**, scripts/**
 - Files matching patterns in .gitignore are excluded
 - Files matching default ignore patterns are excluded
 - Files are sorted by Git change count (files with more changes are at the bottom)
@@ -41,8 +41,6 @@ The content is organized as follows:
 </file_summary>
 
 <directory_structure>
-bin/
-  agent4.ts
 brain/
   bridge.py
   dispatcher.py
@@ -116,7 +114,6 @@ wiki/
     decision-system-philosophy.md
     decision-typescript-python.md
     plan-build-v1.md
-    review-code-audit-1.md
   segments/
     segment-brain.md
     segment-bridge.md
@@ -125,60 +122,10 @@ wiki/
     segment-janitor.md
     segment-memory.md
     segment-user-agent.md
-  CLAUDE.md
-  index.md
-  Soul.md
-.env.example
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
-
-<file path="bin/agent4.ts">
-// bin/agent4.ts — CLI entry point
-// Usage: npx ts-node bin/agent4.ts start | status | audit
-//
-// Routes top-level commands to the appropriate core component.
-// Phase 1-6 wired up; Phase 7 (Forge) is a stub.
-
-import { UserAgent } from '../core/user_agent/agent';
-
-const [, , command, ...args] = process.argv;
-
-async function main() {
-  switch (command) {
-    case 'start': {
-      console.log('[agent4] Starting User Agent…');
-      // TODO: instantiate MemoryStore, ComplexityClassifier, UserAgent
-      // const ua = new UserAgent(memory, classifier, keychain);
-      // ua.run();
-      break;
-    }
-
-    case 'status': {
-      console.log('[agent4] System status — not yet implemented');
-      // TODO: read SESSION_STATE, show active clones, health score
-      break;
-    }
-
-    case 'audit': {
-      console.log('[agent4] Janitor audit — not yet implemented');
-      // TODO: instantiate Janitor + WikiScythe, run full audit cycle
-      break;
-    }
-
-    default: {
-      console.log('Usage: agent4 <start|status|audit>');
-      process.exit(1);
-    }
-  }
-}
-
-main().catch(err => {
-  console.error('[agent4] Fatal:', err);
-  process.exit(1);
-});
-</file>
 
 <file path="brain/bridge.py">
 """
@@ -5167,276 +5114,6 @@ npx jest && python -m pytest test/test_dispatcher.py
 *See also: [[review-code-audit-1]], [[review-gemini-review7]], [[plan-implementation-v4]], [[concept-dispatcher]]*
 </file>
 
-<file path="wiki/decisions/review-code-audit-1.md">
-# Code Audit 1 — Full Codebase Review
-
-> Date: 2026-04-07 | Auditor: Claude Sonnet 4.6 | Scope: all TypeScript + Python source files
-
----
-
-## 🔴 CRITICAL — Compile errors / security failures
-
-### 1. KeychainManager missing `provisionEnvironment()` and `revokeEnvironment()`
-
-`core/clones/clone_worker.ts:70-73` calls:
-```typescript
-await this.keychain.provisionEnvironment(handle.path, decision.requiredKeys);
-await this.keychain.revokeEnvironment(handle.path);
-```
-Neither method exists on `KeychainManager` (`core/keychain/manager.ts`). The only public method is `executeCloneMission()`. TypeScript will not compile.
-
-**Fix:** Add `provisionEnvironment(path, keys)` and `revokeEnvironment(path)` to `KeychainManager`, or change `CloneWorker` to call `executeCloneMission()`.
-
----
-
-### 2. BrainDispatcher calls non-existent `getScopeKeys()`
-
-`core/brain/dispatcher.ts:38`:
-```typescript
-const requiredKeys = await this.keychain.getScopeKeys(skill);
-```
-`KeychainManager` has no `getScopeKeys()` method. TypeScript compile error.
-
-**Fix:** Add `getScopeKeys(skill: SkillType): Promise<string[]>` to `KeychainManager` — reads from `core/keychain/config/scopes.yaml`.
-
----
-
-### 3. MemPalaceAdapter doesn't satisfy MemoryStore interface
-
-`core/memory_store/mempalace_adapter.ts` implements `MemoryStore` but is missing:
-- `writeSummary(digest: InteractionDigest): Promise<string>` — not implemented
-- `audit(olderThan?: Date): Promise<AuditReport>` — not implemented
-
-TypeScript will reject `implements MemoryStore` with "type is missing properties". Also: `readContext(tier: string)` uses raw string, but the interface requires `MemoryTier` enum.
-
-**Fix:** Add both missing methods + change `tier: string` → `tier: MemoryTier`.
-
----
-
-### 4. `loadMasterVault()` always returns `{}` — credentials always fail
-
-`core/keychain/manager.ts:144`:
-```typescript
-return {}; // placeholder
-```
-`buildScopedEnv()` will throw `SECURITY HALT: Requested key X does not exist in vault` for every mission. The system cannot provision any credentials.
-
-**Impact:** Every clone launch silently fails at credential injection before doing any work.
-
----
-
-### 5. `scanForLeaks()` always returns `true` — security scanner disabled
-
-`core/keychain/manager.ts:126`:
-```typescript
-return true; // Safe — no leaks (placeholder)
-```
-This creates false confidence. A clone that hardcodes `sk-ant-api03-...` in its output will pass the security check. The Janitor never sees FAILED_REQUIRE_HUMAN for credential leaks.
-
-**Fix:** Implement the regex scan using `core/keychain/config/patterns.yaml` before this code ships anywhere near real credentials.
-
----
-
-### 6. Duplicate `MissionBrief` interface — two incompatible shapes
-
-Defined in two places with different fields:
-
-| Field | `keychain/manager.ts` | `brain/planner.ts` |
-|-------|-----------------------|--------------------|
-| `task` | ✓ | ✗ (uses `objective`) |
-| `worktreePath` | ✓ | ✗ |
-| `id` | ✗ | ✓ |
-| `skill` | ✗ | ✓ |
-| `wikiContext` | ✗ | ✓ |
-| `timeoutMinutes` | ✗ | ✓ |
-
-`clone_worker.ts` imports from `planner.ts`. `CloneWorker.execute()` passes a `planner.MissionBrief` to `promptBuilder.build()` (which expects `planner.MissionBrief` ✓) but the Keychain's `executeCloneMission()` expects `keychain.MissionBrief`. They can never be passed to each other without conversion.
-
-**Fix:** Delete `MissionBrief` from `keychain/manager.ts`. Create one canonical `MissionBrief` in `brain/planner.ts`. Refactor `KeychainManager` to accept `(requiredKeys, worktreePath)` params directly.
-
----
-
-## 🟡 STRUCTURAL — Wrong architecture, will cause problems
-
-### 7. `spawner.ts` has a leftover `teardownWorktree()` method
-
-`core/clones/lifecycle/spawner.ts:47-52` has `teardownWorktree()`. This functionality was explicitly moved to `lifecycle/teardown.ts` (Gemini review 6). Now two classes own teardown. The one in spawner.ts is also a stub that throws, but its existence confuses ownership.
-
-**Fix:** Delete `teardownWorktree()` from `spawner.ts`.
-
----
-
-### 8. Stale file path in spawner.ts header
-
-`core/clones/lifecycle/spawner.ts:1` still says `// core/clones/spawner.ts` — the pre-move path. Minor but will mislead anyone reading the file.
-
-**Fix:** Update comment to `// core/clones/lifecycle/spawner.ts`.
-
----
-
-### 9. Two dispatchers with the same name, different roles
-
-`brain/dispatcher.py` = Python watch daemon (file poller, process launcher)
-`core/brain/dispatcher.ts` = TypeScript routing logic (skill selector, scope resolver)
-
-Both are named "dispatcher". They are different components. The Python one is infrastructure; the TypeScript one is a routing module. When someone says "the dispatcher", it's ambiguous.
-
-**Fix:** Rename `core/brain/dispatcher.ts` → `core/brain/router.ts` (and class `BrainDispatcher` → `BrainRouter`). Update all imports. Document distinction in wiki.
-
----
-
-### 10. Templates in three locations — no canonical source
-
-1. `templates/code-clone-TASK.md` (repo root — the actual V2 template)
-2. `core/clones/templates/` (directory with only README.md — no real templates)
-3. `brain/dispatcher.py:55`: `TEMPLATES = BASE_DIR / "brain" / "templates"` (another ghost location)
-
-`brain/dispatcher.py` will look for templates in a directory that doesn't exist and contains the wrong files. `core/brain/dispatcher.ts:37` looks in `core/clones/templates/<skill>_task.md` — also doesn't exist (only README.md there).
-
-**Fix:** Move `templates/code-clone-TASK.md` → `core/clones/templates/code_task.md` now (don't defer to Phase 5 — the mismatch is already causing bugs). Update Python dispatcher path. Update TypeScript dispatcher template path.
-
----
-
-### 11. `CloneWorker` retry limit duplicates `Janitor.maxRetries`
-
-`clone_worker.ts:54`: `while (retries < 3)` hardcodes 3.
-`janitor/auditor.ts:26`: `private maxRetries = 3` hardcodes 3.
-
-They're both 3 now, but changing one without the other creates silent logic bugs. The circuit breaker in the Janitor fires at `>=3`, the while loop exits at `<3` — they coincide but for the wrong reason.
-
-**Fix:** Export `MAX_RETRIES = 3` from a shared constants file. Both import it.
-
----
-
-### 12. `brain/dispatcher.py` path assumptions don't match repo structure
-
-Three hardcoded paths in Python dispatcher that reference non-existent directories:
-- `SOUL_MD = BASE_DIR / "user-agent" / "profile" / "soul.md"` → actual: `wiki/Soul.md`
-- `USER_STATE = BASE_DIR / "user-agent" / "state" / "state.json"` → actual: `state/user_agent/state.json`
-- `TEMPLATES = BASE_DIR / "brain" / "templates"` → no such directory
-
-The dispatcher will silently fall back to empty context when these files aren't found (or crash depending on the read-or-fail behavior). Soul.md won't be injected.
-
-**Fix:** Align Python dispatcher paths with actual repo structure. Add to `.env.example`:
-```
-AGENT_BASE_DIR=/path/to/agent4wiki
-```
-
----
-
-### 13. `brain/dispatcher.py` has no Janitor integration — all results COMPLETED or FAILED
-
-Confirmed by reading the code. After `launch_session()`, the dispatcher moves the task to `completed/` or `failed/` with no Janitor call. The BLOCK/SUGGEST/NOTE directive system is completely bypassed for the only actual dispatcher that runs.
-
-**Fix (MVP):** Add `janitor_evaluate(handshake)` function to `dispatcher.py` mirroring the TypeScript Janitor logic. On SUGGEST: re-queue task with `janitor_feedback` appended. On BLOCK: move to failed, optionally re-queue.
-
----
-
-### 14. `WikiScythe` is an orphan — never instantiated anywhere
-
-`core/janitor/scythe.ts` defines `WikiScythe` which takes a `MemoryStore`. Nothing in the codebase instantiates it. It's not referenced from `auditor.ts`, `bin/agent4.ts`, or anywhere else.
-
-**Fix:** Wire `WikiScythe` into the `audit` CLI command in `bin/agent4.ts`.
-
----
-
-### 15. `events/` vs `forge/` — two event directories, inconsistent routing
-
-- `brain/dispatcher.py` logs to `events/dispatcher.jsonl`
-- `core/janitor/auditor.ts` writes ForgeRecord to `forge/events.jsonl`
-
-Two different directories for events. The Forge needs to read both? Or one is the right place and one is wrong?
-
-**Fix:** Pick one. Recommendation: `events/<component>.jsonl` for all structured event streams (`events/dispatcher.jsonl`, `events/forge.jsonl`, `events/janitor.jsonl`). The `forge/` directory is for Forge *outputs* (shadow results, promoted templates), not event logs.
-
----
-
-## 🟢 WEAK — Won't break but needs attention before production
-
-### 16. `MemoryTier` enum not used in adapter
-
-`mempalace_adapter.ts:27` checks `if (tier === 'L0_WAKE')` — raw string comparison. Should be `if (tier === MemoryTier.L0_WAKE)`. The enum was specifically introduced to prevent silent typo failures.
-
----
-
-### 17. `runner.ts` expects `promptPath` (file path) but `clone_worker.ts` passes assembled prompt string
-
-`lifecycle/runner.ts` signature: `run(handle, promptPath: string, timeoutMs: number)`.
-`clone_worker.ts:71`: passes `prompt` (the assembled string from `PromptBuilder.build()`).
-
-The runner would try to `readFile(prompt)` — which is the full prompt string, not a path. This will fail at runtime.
-
-**Fix:** Either `runner.ts` accepts the prompt string directly, or `PromptBuilder.build()` writes to a temp file and returns the path.
-
----
-
-### 18. `bin/agent4.ts` imports `UserAgent` but never uses it
-
-```typescript
-import { UserAgent } from '../core/user_agent/agent';
-```
-Unused import. TypeScript strict mode will warn.
-
----
-
-### 19. `MemPalaceAdapter.write()` ignores the `writeSummary()` / `InteractionDigest` schema
-
-The adapter's `write()` calls `this.client.add({ text: content, meta: metadata })` — this works for raw writes. But there's no `writeSummary()` implementation, so the User Agent's interaction digests can't be stored. The schema enforced by `InteractionDigest` is lost.
-
----
-
-### 20. `clone_worker.ts:89` passes `AuditDirective.BLOCK` to teardown for SUGGEST
-
-When Janitor issues SUGGEST (retry without merging), the code calls:
-```typescript
-await this.teardown.teardown(handle, AuditDirective.BLOCK); // don't merge
-```
-This works because `teardown.ts` only merges on `NOTE`. But using `BLOCK` to mean "don't merge this SUGGEST retry" is semantically wrong. Future developers will be confused.
-
-**Fix:** Add a `CleanupMode.DISCARD` option, or just pass a boolean `merge: false`.
-
----
-
-## Summary Table
-
-| # | Severity | File | Issue |
-|---|----------|------|-------|
-| 1 | 🔴 | clone_worker.ts | Missing `provisionEnvironment` / `revokeEnvironment` on KeychainManager |
-| 2 | 🔴 | brain/dispatcher.ts | Missing `getScopeKeys()` on KeychainManager |
-| 3 | 🔴 | mempalace_adapter.ts | Missing `writeSummary()` and `audit()` — interface not satisfied |
-| 4 | 🔴 | keychain/manager.ts | `loadMasterVault()` always returns `{}` — all clone launches fail |
-| 5 | 🔴 | keychain/manager.ts | `scanForLeaks()` always returns `true` — security scanner disabled |
-| 6 | 🔴 | planner.ts + manager.ts | Duplicate `MissionBrief` interface, incompatible shapes |
-| 7 | 🟡 | lifecycle/spawner.ts | Leftover `teardownWorktree()` — duplicate of teardown.ts |
-| 8 | 🟡 | lifecycle/spawner.ts | Stale file path in header comment |
-| 9 | 🟡 | brain/dispatcher.ts | Name collision with Python dispatcher — rename to router.ts |
-| 10 | 🟡 | multiple | Templates in 3 locations — none canonical |
-| 11 | 🟡 | clone_worker.ts + auditor.ts | Duplicate retry limit — no shared constant |
-| 12 | 🟡 | brain/dispatcher.py | Hardcoded paths don't match repo structure |
-| 13 | 🟡 | brain/dispatcher.py | No Janitor integration — BLOCK/SUGGEST/NOTE bypassed |
-| 14 | 🟡 | scythe.ts | WikiScythe never instantiated — orphan class |
-| 15 | 🟡 | auditor.ts + dispatcher.py | Two event directories (events/ vs forge/) |
-| 16 | 🟢 | mempalace_adapter.ts | MemoryTier enum not used — raw string comparison |
-| 17 | 🟢 | clone_worker.ts + runner.ts | Prompt string vs file path mismatch |
-| 18 | 🟢 | bin/agent4.ts | Unused import |
-| 19 | 🟢 | mempalace_adapter.ts | `writeSummary()` / InteractionDigest schema not implemented |
-| 20 | 🟢 | clone_worker.ts | Misleading use of AuditDirective.BLOCK for SUGGEST cleanup |
-
----
-
-## Priority Fix Order
-
-1. Issues 1, 2, 6 — fix the three compile-breaking type errors (KeychainManager API, MissionBrief)
-2. Issue 3 — satisfy MemoryStore interface in adapter
-3. Issues 4, 5 — implement vault loading + leak scanner before any credential is real
-4. Issue 9 — rename TypeScript dispatcher → router to prevent naming confusion
-5. Issue 10 — consolidate templates to one location
-6. Issue 13 — add Janitor integration to Python dispatcher (the only one that actually runs)
-7. Issues 7, 11, 12, 15 — structural cleanup
-
-*See also: [[segment-janitor]], [[decision-typescript-python]], [[concept-dispatcher]]*
-</file>
-
 <file path="wiki/segments/segment-clones.md">
 # Clones — Special Ops
 
@@ -5538,110 +5215,6 @@ Total wake-up cost: ~170 tokens for full world context. See [[concept-token-econ
 - ← [[segment-clones]]: read-only mission context
 - ← [[segment-janitor]]: prune commands, integrity audits
 - ← [[segment-forge]]: reads all data for pattern analysis, writes improvement findings
-</file>
-
-<file path="wiki/CLAUDE.md">
-# Wiki Schema & Rules
-
-This file defines the conventions for the Agent4 wiki directory.
-The Brain reads this file before any wiki operation.
-
-## Directory Map
-
-| Directory | Purpose |
-|-----------|---------|
-| `segments/` | One file per system segment (segment-brain.md, etc.) |
-| `concepts/` | Cross-cutting ideas and patterns (concept-git-worktrees.md, etc.) |
-| `tools/` | External tools and services the system integrates (tool-mempalace.md, etc.) |
-| `entities/` | Named external actors, services, APIs |
-| `decisions/` | Architecture decisions + review records |
-| `raw/` | Immutable source documents — never edit, only append |
-
-## Page Format
-
-Every wiki page must have:
-- `# Title` — H1 at top
-- A one-line description of what this page covers
-- Cross-references using `[[page-name]]` syntax (wikilink style)
-
-## Wikilink Convention
-
-Use `[[page-name]]` without the `.md` extension.
-Tool links: `[[tool-mempalace]]`
-Concept links: `[[concept-git-worktrees]]`
-Segment links: `[[segment-brain]]`
-Decision links: `[[decision-typescript-python]]`
-
-## Index Rules
-
-`index.md` is the master catalog. Every page must appear there.
-Format: `[[page-name]] — one-line description`
-Sections: Segments | Concepts | Tools | Entities | Decisions | Reviews
-
-## Log Rules
-
-`log.md` is append-only. Never edit existing entries.
-Format: `## [YYYY-MM-DD] <operation> | <title>`
-Operations: `init`, `ingest`, `query`, `implement`, `patch`, `lint`
-
-## Tiering
-
-Pages age into cold storage after 90 days of no edits.
-Hot tier: indexed and context-injected automatically.
-Warm tier: on-demand retrieval.
-Cold tier: archived, not in index. See [[concept-wiki-tiering]].
-
-## Token Budget
-
-The wiki context injected into a Brain session is capped at 500 tokens.
-The index.md must stay under this limit. Prefer one-line entries.
-</file>
-
-<file path="wiki/Soul.md">
-# Soul — Agent Identity Profile
-
-This file defines the voice, values, and operating principles of the Agent4 system.
-The Brain reads this before any user-facing response.
-
-## Identity
-
-Agent4 is a personal AI orchestration system. It does not pretend to be human.
-It is direct, competent, and honest about its limitations.
-
-## Voice
-
-- Direct: no filler words, no hedging when confident
-- Honest: "I attempted this but could not confirm" > false certainty
-- Concise: one sentence if it fits; longer only when complexity demands it
-- Grounded: always state whether information is live-fetched or from training data
-
-## Core Values
-
-1. **Verify, never assume** — task attempts ≠ completions
-2. **Stay present** — never go radio silent on a running task
-3. **Irreversible actions require confirmation** — money, emails, deletes: show draft first
-4. **Security is non-negotiable** — no credential leaks, no exceptions
-
-## Operating Constraints
-
-- Never impersonate the user
-- Never upgrade model cost without confirmation
-- Never send external comms as the user's identity
-- Always log: what was done, when, with what result
-
-## Delegation Style
-
-When routing to a clone or specialist:
-- Say what you're delegating and why
-- Report back with the result, not just "done"
-- If something failed: what failed, why, what was tried
-
-## Shutdown Protocol
-
-Before any session ends:
-- Save state to SESSION_STATE.md
-- Drain the Telegram queue
-- Send shutdown ping with open work summary
 </file>
 
 <file path="brain/dispatcher.py">
@@ -7348,56 +6921,6 @@ This prevents the improvement engine from destabilizing the system it's improvin
 | [[tool-keychain-agent]] | Monitors credential usage. Predicts rate limit exhaustion. Optimizes fallback ordering. |
 </file>
 
-<file path=".env.example">
-# Agent4 — Environment Template
-# Copy to .env and fill in your values. Never commit .env.
-
-# ── Telegram (primary Bridge channel — REQUIRED) ──────────────────────────────
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-TELEGRAM_CHAT_ID=your_chat_id_here
-
-# ── Email (Bridge fallback 1 — AgentMail) ─────────────────────────────────────
-# Get API key at: https://agentmail.to
-# Inbox format: yourusername@agentmail.to
-AGENTMAIL_API_KEY=your_agentmail_api_key
-AGENTMAIL_INBOX_ID=yourusername@agentmail.to
-PERSONAL_EMAIL=you@email.com              # where notifications are delivered to
-
-# ── Discord (Bridge fallback 2 + parallel for critical alerts) ────────────────
-# Create webhook: Discord server → Channel Settings → Integrations → Webhooks
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your_id/your_token
-
-# ── Slack (Bridge fallback 3) ─────────────────────────────────────────────────
-# Create webhook: Slack App → Incoming Webhooks → Add New Webhook to Workspace
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/your/webhook/url
-
-# ── SMS via Twilio (last resort — costs per message, critical alerts only) ────
-# Sign up at: https://twilio.com — free trial covers ~15 SMS
-TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-TWILIO_AUTH_TOKEN=your_auth_token
-TWILIO_FROM_NUMBER=+1234567890             # your Twilio number
-TWILIO_TO_NUMBER=+0987654321               # your personal number
-
-# ── AI APIs ───────────────────────────────────────────────────────────────────
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...          # optional — for alternative routing
-GROQ_API_KEY=gsk_...           # optional — bulk/free tier
-
-# ── MemPalace MCP ─────────────────────────────────────────────────────────────
-MEMPALACE_URL=http://localhost:3001
-MEMPALACE_API_KEY=your_key_here
-
-# ── Keychain ──────────────────────────────────────────────────────────────────
-KEYCHAIN_MASTER_VAULT=./state/keychain/master.vault
-KEYCHAIN_PASSPHRASE=your_passphrase_here
-
-# ── Clone Execution ───────────────────────────────────────────────────────────
-AGENT_BASE_DIR=/path/to/this/repo       # absolute path to repo root
-MAX_CLONE_RETRIES=3
-CLONE_TIMEOUT_MINUTES=30
-ALLOWED_WORKTREE_PATH=./state/worktrees
-</file>
-
 <file path="core/memory_store/interface.ts">
 // core/memory_store/interface.ts
 // Phase 1 deliverable — MemoryStore abstraction layer (V2)
@@ -7671,7 +7194,7 @@ The Brain cannot create a worktree and immediately launch a Node.js or Python cl
 <file path="wiki/concepts/concept-token-economics.md">
 # Token Economics
 
-> How tokens are budgeted across the six segments.
+> How tokens are budgeted across the seven segments.
 
 ## Model Tiers
 
@@ -7691,7 +7214,7 @@ Wake-up cost for full world context: ~170 tokens via [[concept-aaak-compression]
 
 > Flagged by: [[review-gemini-review1]]
 
-The full 6-segment pipeline (User Agent → Brain → Memory → Clone → Janitor → Forge) is designed for complex tasks. Running it for simple requests (status check, single-fact query, quick lookup) burns tokens and adds latency for no gain.
+The full 7-segment pipeline (User Agent → Brain → Memory → Clone → Janitor → Bridge → Forge) is designed for complex tasks. Running it for simple requests (status check, single-fact query, quick lookup) burns tokens and adds latency for no gain.
 
 **Required: tiered routing at the User Agent layer**
 
@@ -7699,7 +7222,7 @@ The full 6-segment pipeline (User Agent → Brain → Memory → Clone → Janit
 |------|---------|------|---------|
 | Direct | Simple query, no execution needed | User Agent → response | < 1s |
 | Brain-only | Planned task, no clone needed | User Agent → Brain → response | 2-5s |
-| Full pipeline | Multi-step, requires execution | All 6 segments | 10-60s+ |
+| Full pipeline | Multi-step, requires execution | All 7 segments | 10-60s+ |
 
 Complexity classifier runs at User Agent on [[tool-bitnet]] (zero cost). Routes before the Brain is even woken. See [[segment-user-agent]], [[segment-brain]].
 
@@ -7881,96 +7404,6 @@ File: `janitor/audit-board.md` (persistent, append-only per cycle). Nothing is l
 - → [[segment-clones]]: quality feedback, skill improvement notes
 - ← [[segment-forge]]: the Forge audits the Janitor's audit
 - ← All: reads everything, trusts nothing
-</file>
-
-<file path="wiki/index.md">
-# Agent Architecture Wiki — Index
-
-> Last updated: 2026-04-08
-> Total pages: 59
-> Sources ingested: 8 repos/articles + 1 architecture session + 9 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge
-
-## Templates
-
-- `templates/code-clone-TASK.md` — Code clone mission brief V1. Injection variables, Janitor handshake JSON, Repomix trap. See [[concept-clone-skill-templates]].
-
-## Segments
-
-- [[segment-memory]] — The Vault. Persistent external store. MemPalace + LLM Wiki.
-- [[segment-user-agent]] — The Virtual Clone. Privacy-first credential guardian. Minimal tokens.
-- [[segment-brain]] — The Architect. Plans, delegates, never executes. Starts fresh every session.
-- [[segment-clones]] — Special Ops. Disposable executors in git worktrees. Unlimited parallel.
-- [[segment-janitor]] — The Muscle. Doubts everything. Prunes, simplifies, audits.
-- [[segment-forge]] — Perpetual Improvement. Shadow benchmarks. Tool building. Process replacement.
-- [[segment-bridge]] — The Output Layer. Everything the user sees. Telegram + multi-channel relay. Never go radio silent.
-
-## Concepts
-
-- [[concept-shadow-benchmarking]] — Running alternatives against production to find better approaches.
-- [[concept-token-economics]] — How tokens are budgeted across the six segments.
-- [[concept-mission-briefs]] — How the Brain instructs Clones. Not conversations — precision briefs.
-- [[concept-wiki-pattern]] — Karpathy's LLM Wiki: compile knowledge, don't re-derive it.
-- [[concept-aaak-compression]] — MemPalace's 30x lossless compression dialect for AI context.
-- [[concept-fallback-chains]] — Graceful degradation when services or credentials fail.
-- [[concept-clone-skill-templates]] — Per-skill instruction sets that improve over time.
-- [[concept-summary-pipeline]] — How interactions get compressed before reaching the User Agent.
-- [[concept-git-worktrees]] — Parallel isolated execution environments for clones.
-- [[concept-soul-md]] — Voice and personality persistence across all agents.
-- [[concept-inter-agent-protocol]] — JSON-lines event log per channel. How segments communicate.
-- [[concept-dispatcher]] — Lightweight script bridging always-on droids to session-based Brain/Clone launches.
-- [[concept-wiki-tiering]] — Hot/warm/cold archive tiers. 500-token index cap. Prevents wiki growth failure.
-- [[concept-distributed-clones]] — Multi-machine execution fabric. Node registry, per-platform capabilities, task routing, credential isolation, use case map per hardware type.
-- [[concept-node-setup]] — Step-by-step setup guide: bare Linux + Windows bootstrap scripts, all dependencies, path issues, smoke tests, fleet registration format.
-- [[concept-multi-channel-bridge]] — 5-channel fallback cascade (Telegram→Email→Discord→Slack→SMS). send() vs broadcast() modes. Dispatcher routing by directive.
-
-## Tools
-
-- [[tool-mempalace]] — Local-first AI memory system. Palace structure, AAAK, knowledge graph.
-- [[tool-llm-wiki]] — Karpathy's pattern for compounding knowledge bases.
-- [[tool-last30days]] — Multi-source research skill. Reddit, X, YouTube, HN, Polymarket.
-- [[tool-bitnet]] — 1-bit LLM inference. CPU-native, 70-82% energy reduction.
-- [[tool-hstack]] — Health specialist agents. Subagent separation pattern.
-- [[tool-ai-personal-os]] — Onboarding, daily logging, Zettelkasten, system review.
-- [[tool-keychain-agent]] — Digital keychain. Encrypted vault, scoped injection, leak scanning.
-- [[tool-mcp-protocol]] — Model Context Protocol. Host-client-server triad, Code Mode (98.7% token reduction), top skills, security threats.
-
-## Entities
-
-- [[entity-telegram-bots]] — Admin bot, company bots, kids coding bot. The communication layer.
-- [[entity-hardware]] — RTX 3090, WSL2, Docker, Ollama. The local compute stack.
-
-## Decisions
-
-- [[decision-six-segments]] — Why six segments (original — superseded).
-- [[decision-seven-segments]] — Why seven: The Bridge earns segment status. Output reliability = execution reliability.
-- [[decision-typescript-python]] — TypeScript Core (User Agent/Brain/Janitor/Keychain) + Python Clones. MCP as firewall. Locked.
-- [[decision-brain-never-executes]] — The Brain plans. Period.
-- [[decision-forge-independence]] — Why the Forge never touches production directly.
-- [[review-architecture-audit]] — Full critical review: what works, what breaks, what's untested.
-- [[review-gemini-review1]] — Gemini external review: ping-pong deadlock, RTT latency, filesystem scope attack vector.
-- [[plan-implementation-v4]] — 7-phase build plan sequenced by dependency. Phase 1=Memory, Phase 7=Forge.
-- [[plan-forge-v01-benchmarking]] — Forge V0.1: model benchmarking cascade. Sonnet→Haiku→Ollama→BitNet→Opus. Produces routing matrix.
-- [[review-gemini-review3]] — Gemini review 3: plan validated as bulletproof + 4 tweaks (async MemoryStore, regex classifier, worktree teardown, Phase 5 as Forge seed).
-- [[review-opus-review1]] — Opus deep-dive: 5 new blind spots, 3 conflicts, repo structure, productization, autonomy levels, 6 upgrades, 6 quick wins.
-- [[review-opus-review2]] — Opus code review: TASK template V2, MemoryStore V2 (enum+writeSummary+audit), Keychain V2 (spawn injection, try/finally). Language decision flagged.
-- [[review-gemini-review4]] — Gemini feasibility check: engine/state repo separation, Docker sandboxing, clone bootstrap, irreversible action gate.
-- [[review-pdf-agentic-ecosystem]] — Research PDF: MCP as native protocol, Code Mode 98.7% token reduction, E2B microVMs, credential proxying, MCP security threats.
-- [[review-gemini-review5]] — Gemini synthesis: skills → architecture mappings. Sequential Thinking for Brain, Repomix for coding clones, Absolute-Human format for Janitor audit logs. "Start building."
-- [[decision-directory-scaffold]] — Canonical repo directory structure. Implementation status table. Conflict notes: brain/ (Python dispatcher) vs core/brain/ (TS planner); templates/ migration path.
-- [[review-opus-review3]] — Janitor + dispatcher integration: detectStructuralIssue V2, Forge JSONL logging, SUGGEST retry loop, WikiScythe 3 operations, dispatcher→Janitor lifecycle.
-- [[review-opus-review4]] — Directory + gitignore: events/ dir, keychain/config/ YAMLs, Python artifacts, worktrees-inside-repo note (deferred), Soul.md two-file split (deferred).
-- [[review-gemini-review6]] — Phase 4/5/7 file structure: Brain split (planner/dispatcher/prompt_builder), Clones lifecycle/ subdir + clone_worker, Forge 4 files (shadow_runner/evaluator/ratchet/metrics_db).
-- [[review-code-audit-1]] — Full codebase audit: 6 🔴 critical (compile errors, security), 9 🟡 structural, 5 🟢 weak. Priority fix order included.
-- [[review-gemini-review7]] — Current state deep dive: inbox pattern validated, 3 blind spots (TS→Python bridge, vault stub, Janitor loop). "This week" path: Steps 1+2 = first autonomous loop.
-- [[review-opus-review5]] — Opus Janitor audit (early state): R1 monorepo decision documented, R2/R3/Y3/Y5 fixed, Y1 partial (2 orphan links remain), Y2/Y4 open.
-- [[plan-build-v1]] — Phase-by-phase build guide with exact code specs + unit tests. Phase 0 (compile fixes) → Phase 4 (first autonomous loop).
-- [[decision-system-philosophy]] — Why this was built, design choices, tools used, full roadmap. Origin story.
-- [[decision-model-governance]] — Sonnet 4.6 as benchmark baseline for all tasks. Optimisation path: Haiku → Ollama → BitNet. Forge drives the transitions.
-- [[review-gemini-review8]] — Opus brief audit: 6 findings applied (MemPalace blind spot, TS mandate, state.json trigger, path traversal fix, setup.sh hook, staged output protocol).
-
-## Log
-
-See [[log]] for chronological record of all wiki operations.
 </file>
 
 </files>
