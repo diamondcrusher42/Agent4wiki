@@ -88,7 +88,7 @@ Bridge (The Output Layer)   — everything the user sees; Telegram relay; never 
 
 ## Current State (as of 2026-04-08)
 
-### Working code (opus-build branch — 6 commits, 57 tests)
+### Working code (opus-build branch — 9 commits, 57 tests)
 
 | Component | Status |
 |-----------|--------|
@@ -98,6 +98,7 @@ Bridge (The Output Layer)   — everything the user sees; Telegram relay; never 
 | Clone lifecycle (spawn/run/teardown) | ✅ 12 Jest — real git worktrees, handshake parsing |
 | Brain + full pipeline | ✅ 14 Jest — BrainPlanner, ComplexityClassifier, ForgeRecord |
 | Security patches | ✅ path.relative() traversal guard, entropy threshold >16 |
+| Skills scaffold | ✅ skills/ library, required_skills schema, CI skill-scanner gate |
 | End-to-end loop | ✅ User message → Brain → Clone → Janitor → Bridge (Telegram + Email) |
 
 ### Known TODOs (not blocking)
@@ -105,6 +106,7 @@ Bridge (The Output Layer)   — everything the user sees; Telegram relay; never 
 | Item | Notes |
 |------|-------|
 | `mempalace_adapter.ts` MCP transport | All methods stubbed. Wire `StdioClientTransport` when MemPalace confirmed running. |
+| `provisionSkills()` in spawner | Copy required_skills from library to worktree .claude/skills/ — Phase 5. |
 | `loadMasterVault()` | MVP reads plain `.env`. Full AES-256-GCM vault in Phase 5. |
 | WikiScythe contradiction detection | Must be V4-implemented via LLM semantic comparison — MemPalace KG doesn't do this. |
 | Fleet routing | `target_node` field not yet parsed. All tasks run on current node. |

@@ -227,3 +227,7 @@ Source: raw/Agent_V4_Skills_Playbook.docx. Key constraint: 28-skill ceiling — 
 ## [2026-04-08] build | skills scaffold on opus-build + code suggestions wiki
 
 Design principle confirmed: one agent, one mission, one skill set (1 primary + 1-3 complementary). 28-skill ceiling irrelevant at clone level. Handoff between agents = natural skill set swap. Code changes applied to opus-build (fdb8308): skills/ library directory (7 placeholders + BUDGET.md tracker), required_skills field added to TASK-FORMAT.md clone schema, .github/workflows/skill-scan.yml CI gate (broad permissions check, obfuscation detection, budget enforcement at 25). Remaining code changes documented in wiki: provisionSkills() spawner method, Docker sandbox flag, per-skill scopes.yaml, Janitor monthly skill audit. Wiki updates: segment-clones.md updated with one-skill-per-clone principle + skill provisioning note. Pages created: [[code-suggestions-skills]]. Index updated (71 pages).
+
+## [2026-04-08] state | final session sync — 71 pages, opus-build 9 commits
+
+End-of-session state sync. Wiki: 71 pages (68 decisions/concepts/tools/entities/segments + 3 nav). Main repo up to date. opus-build branch: 9 commits ahead of main (Phases 0-4 + security patches + skills scaffold). All MemPalace corrections applied, all Gemini reviews processed, benchmarking infrastructure built (benchmark_score.py + results tracker), skills playbook ingested, code-suggestions-skills documented. README updated to reflect 9 commits and skills scaffold status.
