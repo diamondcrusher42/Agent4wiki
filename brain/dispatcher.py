@@ -73,7 +73,30 @@ USER_STATE = BASE_DIR / "state" / "user_agent" / "state.json"
 SOUL_MD   = BASE_DIR / "wiki" / "Soul.md"
 EVENT_LOG = BASE_DIR / "events" / "dispatcher.jsonl"
 
-MAX_RETRIES = 3  # Janitor circuit breaker
+# C1: Load MAX_RETRIES from shared config
+_CLONE_CONFIG_PATH = Path(__file__).parent.parent / 'core' / 'config' / 'clone_config.json'
+try:
+    with open(_CLONE_CONFIG_PATH) as _f_config:
+        _clone_config = json.load(_f_config)
+    MAX_RETRIES = _clone_config['maxRetries']
+except (FileNotFoundError, KeyError, json.JSONDecodeError):
+    MAX_RETRIES = 3  # Fallback
+
+# A1: Sensitive env keys that must never leak to clones
+SENSITIVE_ENV_KEYS = {
+    'VAULT_MASTER_PASSWORD',
+    'ANTHROPIC_API_KEY',
+    'TELEGRAM_BOT_TOKEN',
+    'TELEGRAM_CHAT_ID',
+}
+
+
+def build_clone_env(extra: dict | None = None) -> dict:
+    """Build a sanitized env dict for clone subprocesses, stripping sensitive keys."""
+    env = {k: v for k, v in os.environ.items() if k not in SENSITIVE_ENV_KEYS}
+    if extra:
+        env.update(extra)
+    return env
 
 POLL_INTERVAL = 2  # seconds between inbox checks in watch mode
 MAX_CONCURRENT = 3  # max simultaneous clone sessions
@@ -382,7 +405,7 @@ def launch_session(task: Task, context: str, worktree_path: Optional[Path] = Non
     try:
         cmd = ["claude", "--model", task.model, "--print", "--dangerously-skip-permissions",
                "-p", f"@{prompt_file}"]
-        env = {**os.environ, "CLAUDE_MODEL": task.model}
+        env = build_clone_env({"CLAUDE_MODEL": task.model})
         result = subprocess.run(
             cmd,
             cwd=cwd,

@@ -12,6 +12,11 @@ import * as crypto from 'crypto';
 import { execSync } from 'child_process';
 import yaml from 'js-yaml';
 
+export interface ScanResult {
+  clean: boolean;
+  largeFilesSkipped: string[];
+}
+
 export interface HandshakeResult {
   status: 'COMPLETED' | 'FAILED_REQUIRE_HUMAN' | 'FAILED_RETRY' | 'BLOCKED_IMPOSSIBLE';
   files_modified: string[];
@@ -180,7 +185,7 @@ export class KeychainManager {
   /**
    * REVOKE: Delete the .env file from the worktree.
    */
-  public async revokeEnvironment(worktreePath: string): Promise<boolean> {
+  public async revokeEnvironment(worktreePath: string): Promise<ScanResult> {
     const resolved = path.resolve(worktreePath);
     const envPath = path.join(resolved, '.env');
     try {
@@ -188,11 +193,11 @@ export class KeychainManager {
     } catch {
       // File may not exist if provisionEnvironment never ran
     }
-    const clean = this.scanForLeaks(resolved);
-    if (!clean) {
+    const result = this.scanForLeaks(resolved);
+    if (!result.clean) {
       console.error(`[KEYCHAIN FATAL] Credential leak detected in ${resolved}`);
     }
-    return clean;
+    return result;
   }
 
   /**
@@ -222,7 +227,7 @@ export class KeychainManager {
     '.pdf', '.zip', '.gz', '.tar', '.bin', '.exe', '.dll', '.so', '.node',
   ]);
 
-  private scanForLeaks(worktreePath: string): boolean {
+  private scanForLeaks(worktreePath: string): ScanResult {
     const patternsPath = path.join(__dirname, 'config', 'patterns.yaml');
     const patterns: Array<{name: string, regex: string, severity: string}> = [];
     try {
@@ -248,6 +253,7 @@ export class KeychainManager {
     const files = this.getModifiedFiles(worktreePath);
 
     let foundLeak = false;
+    const skippedFiles: string[] = [];
     for (const filePath of files) {
       const resolved = path.resolve(filePath);
       const rel = path.relative(path.resolve(worktreePath), resolved);
@@ -257,11 +263,12 @@ export class KeychainManager {
       const ext = path.extname(resolved).toLowerCase();
       if (KeychainManager.BINARY_EXTENSIONS.has(ext)) continue;
 
-      // A3: Skip files larger than 1MB to prevent OOM
+      // A3: Skip files larger than 1MB to prevent OOM — track for manual review
       try {
         const stat = fs.statSync(resolved);
         if (stat.size > KeychainManager.MAX_SCAN_FILE_BYTES) {
           console.warn(`[KEYCHAIN] Skipping large file (${stat.size} bytes): ${resolved}`);
+          skippedFiles.push(rel);
           continue;
         }
       } catch { continue; }
@@ -290,18 +297,21 @@ export class KeychainManager {
       }
     }
 
-    return !foundLeak;
+    return { clean: !foundLeak, largeFilesSkipped: skippedFiles };
   }
 
   private getModifiedFiles(worktreePath: string): string[] {
     try {
-      const result = execSync('git diff --name-only HEAD', {
+      const output = execSync('git status --porcelain', {
         cwd: worktreePath,
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
       });
-      return result.trim().split('\n')
-        .filter(Boolean)
+      // Parse lines: "?? newfile.ts", " M modified.ts", "A  staged.ts"
+      return output.split('\n')
+        .filter(line => line.trim().length > 0)
+        .map(line => line.slice(3).trim())
+        .filter(f => f.length > 0)
         .map((f: string) => path.join(worktreePath, f));
     } catch {
       return this.getAllFiles(worktreePath);

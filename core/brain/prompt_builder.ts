@@ -65,7 +65,7 @@ export class PromptBuilder {
    * Load requested wiki pages into a single context block.
    * Total budget: ~500 tokens. Pages truncated if over budget.
    */
-  private async loadWikiContext(pageNames: string[]): Promise<string> {
+  public async loadWikiContext(pageNames: string[]): Promise<string> {
     const MAX_TOTAL_CHARS = 2000; // ~500 tokens total budget
     const sections: string[] = [];
     let totalChars = 0;

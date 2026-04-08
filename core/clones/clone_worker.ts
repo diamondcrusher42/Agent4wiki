@@ -10,27 +10,25 @@
 import { CloneSpawner } from './lifecycle/spawner';
 import { CloneRunner } from './lifecycle/runner';
 import { CloneTeardown } from './lifecycle/teardown';
-import { KeychainManager, HandshakeResult } from '../keychain/manager';
+import { KeychainManager, HandshakeResult, ScanResult } from '../keychain/manager';
 import { Janitor, AuditDirective, AuditResult } from '../janitor/auditor';
 import { DispatchDecision } from '../brain/router';
 import { PromptBuilder } from '../brain/prompt_builder';
 import { MissionBrief } from '../brain/planner';
+import cloneConfig from '../config/clone_config.json';
 
-const SENSITIVE_ENV_KEYS = [
-  'VAULT_MASTER_PASSWORD',
-  'ANTHROPIC_API_KEY',  // injected per-task via keychain, not globally
-  'TELEGRAM_BOT_TOKEN',
-  'TELEGRAM_CHAT_ID',
-];
+const REQUIRED_ENV_KEYS = ['PATH', 'HOME', 'NODE_ENV', 'TMPDIR', 'LANG', 'LC_ALL'];
 
-export function buildCloneEnv(): Record<string, string> {
+export function buildCloneEnv(scopedEnv: Record<string, string> = {}): Record<string, string> {
   const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (v !== undefined && !SENSITIVE_ENV_KEYS.includes(k)) {
-      env[k] = v;
+  // Allowlist: only pass safe system keys
+  for (const key of REQUIRED_ENV_KEYS) {
+    if (process.env[key] !== undefined) {
+      env[key] = process.env[key]!;
     }
   }
-  return env;
+  // Merge task-scoped keys from Keychain
+  return { ...env, ...scopedEnv };
 }
 
 export interface CloneResult {
@@ -71,7 +69,7 @@ export class CloneWorker {
     let lastFeedback = '';
     let lastHandshake: HandshakeResult | null = null;
 
-    while (retries < 3) {
+    while (retries < cloneConfig.maxRetries) {
       const cloneId = `${taskId}-r${retries}`;
       const handle = await this.spawner.createWorktree(cloneId, decision.skill);
 
@@ -87,11 +85,13 @@ export class CloneWorker {
 
       let handshake: HandshakeResult;
       let noLeaks = true;
+      let scanResult: ScanResult = { clean: true, largeFilesSkipped: [] };
       try {
         await this.keychain.provisionEnvironment(handle.path, decision.requiredKeys);
         handshake = await this.runner.run(handle, prompt, brief.timeoutMinutes * 60 * 1000);
       } finally {
-        noLeaks = await this.keychain.revokeEnvironment(handle.path);
+        scanResult = await this.keychain.revokeEnvironment(handle.path);
+        noLeaks = scanResult.clean;
         if (!noLeaks) {
           console.error(`[CLONE_WORKER] SECURITY: Credential leak detected in ${handle.path} — forcing BLOCK`);
         }
@@ -110,6 +110,12 @@ export class CloneWorker {
           tokensConsumed: handshake.tokens_consumed || 0,
           filesModified: handshake.files_modified || [],
         };
+      }
+
+      // A4: Annotate janitor notes with skipped large files for manual review
+      if (scanResult.largeFilesSkipped.length > 0) {
+        handshake.janitor_notes = (handshake.janitor_notes || '') +
+          `\nLARGE FILES SKIPPED (manual review needed): ${scanResult.largeFilesSkipped.join(', ')}`;
       }
 
       const audit: AuditResult = this.janitor.evaluateMission(handshake, retries, taskId, decision.skill);

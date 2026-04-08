@@ -12,6 +12,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { ComplexityClassifier, TaskComplexity } from '../routing/classifier';
 import { BrainPlanner } from '../brain/planner';
+import { PromptBuilder } from '../brain/prompt_builder';
 import Anthropic from '@anthropic-ai/sdk';
 
 export interface UserAgentState {
@@ -26,6 +27,7 @@ export interface UserAgentState {
 export class UserAgent {
   private classifier: ComplexityClassifier;
   private planner: BrainPlanner;
+  private promptBuilder: PromptBuilder;
   private anthropic: Anthropic;
   private conversationHistory: Array<{role: string; content: string; timestamp: string}>;
   private state: UserAgentState;
@@ -40,6 +42,7 @@ export class UserAgent {
     this.anthropic = anthropicClient || new Anthropic();
     this.classifier = new ComplexityClassifier(this.anthropic);
     this.planner = new BrainPlanner(this.anthropic);
+    this.promptBuilder = new PromptBuilder();
     this.conversationHistory = [];
     this.state = this.loadState();
   }
@@ -127,6 +130,10 @@ export class UserAgent {
   private async routeToBrain(prompt: string): Promise<string> {
     try {
       const soul = this.loadSoul();
+      // BRAIN_ONLY gets wiki context (DIRECT does not)
+      const wikiContext = await this.promptBuilder.loadWikiContext(['concept-routing-classifier', 'segment-brain']);
+      const systemPrompt = [soul, wikiContext ? `\n\n## Knowledge\n${wikiContext}` : '']
+        .filter(Boolean).join('');
       const history = this.conversationHistory.slice(-11, -1).map(h => ({
         role: h.role as 'user' | 'assistant',
         content: h.content,
@@ -134,7 +141,7 @@ export class UserAgent {
       const response = await this.anthropic.messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 2048,
-        system: soul || 'You are a helpful assistant. Provide clear, well-reasoned answers.',
+        system: systemPrompt || 'You are a helpful assistant. Provide clear, well-reasoned answers.',
         messages: [...history, { role: 'user', content: prompt }],
       });
       return response.content
@@ -156,6 +163,11 @@ export class UserAgent {
       const taskId = `task-${crypto.randomUUID().slice(0, 8)}`;
 
       const planning = await this.planner.plan(prompt, taskId);
+
+      // C3: Confidence gate — low-confidence plans get clarification instead of dispatch
+      if (planning.confidence < 0.5) {
+        return `I'm not confident I understood your request correctly (confidence: ${planning.confidence}). Could you rephrase? Here's what I understood: ${planning.brief.objective}`;
+      }
 
       const task = {
         id: taskId,

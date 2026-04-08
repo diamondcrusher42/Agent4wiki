@@ -148,7 +148,7 @@ export class Janitor {
     // Missing tests: clone added source files but no test files
     const sourceFiles = files.filter(f => /\.(ts|js|py)$/.test(f) && !/test|spec/.test(f));
     const testFiles = files.filter(f => /test|spec/.test(f));
-    if (sourceFiles.length > 0 && testFiles.length === 0 && handshake.tests_passed !== true) {
+    if (sourceFiles.length > 0 && testFiles.length === 0 && handshake.tests_passed === false) {
       return `MISSING TESTS: Clone added ${sourceFiles.length} source file(s) but no test files. Add tests before merging.`;
     }
 

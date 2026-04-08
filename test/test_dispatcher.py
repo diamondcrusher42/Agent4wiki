@@ -15,6 +15,8 @@ from dispatcher import (
     MAX_RETRIES,
     validate_task_id,
     read_handshake_file,
+    build_clone_env,
+    SENSITIVE_ENV_KEYS,
 )
 
 
@@ -384,3 +386,45 @@ def test_create_worktree_accepts_valid_task_id(tmp_path, monkeypatch):
     result = create_worktree(task)
     # Returns None because git command fails (no git repo in tmp_path)
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# A1: Python vault leak — build_clone_env tests (plan-build-v7)
+# ---------------------------------------------------------------------------
+
+def test_build_clone_env_strips_vault_password(monkeypatch):
+    """build_clone_env() must strip VAULT_MASTER_PASSWORD."""
+    monkeypatch.setenv('VAULT_MASTER_PASSWORD', 'super-secret')
+    env = build_clone_env()
+    assert 'VAULT_MASTER_PASSWORD' not in env
+
+
+def test_build_clone_env_strips_all_sensitive_keys(monkeypatch):
+    """All keys in SENSITIVE_ENV_KEYS must be stripped."""
+    for key in SENSITIVE_ENV_KEYS:
+        monkeypatch.setenv(key, 'test-value')
+    env = build_clone_env()
+    for key in SENSITIVE_ENV_KEYS:
+        assert key not in env, f"{key} should be stripped from clone env"
+
+
+def test_build_clone_env_preserves_task_scoped_keys(monkeypatch):
+    """Extra keys passed to build_clone_env should appear in the result."""
+    monkeypatch.setenv('VAULT_MASTER_PASSWORD', 'secret')
+    env = build_clone_env({'TASK_KEY': 'task-value', 'CLAUDE_MODEL': 'haiku'})
+    assert env['TASK_KEY'] == 'task-value'
+    assert env['CLAUDE_MODEL'] == 'haiku'
+    assert 'VAULT_MASTER_PASSWORD' not in env
+
+
+# ---------------------------------------------------------------------------
+# C1: Shared config MAX_RETRIES test (plan-build-v7)
+# ---------------------------------------------------------------------------
+
+def test_max_retries_from_shared_config():
+    """MAX_RETRIES should be loaded from core/config/clone_config.json."""
+    import json
+    from pathlib import Path
+    config_path = Path(__file__).parent.parent / 'core' / 'config' / 'clone_config.json'
+    config = json.loads(config_path.read_text())
+    assert MAX_RETRIES == config['maxRetries']

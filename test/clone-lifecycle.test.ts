@@ -135,6 +135,18 @@ describe('CloneSpawner.createWorktree', () => {
     expect(registry['test-spawn-003']).toBeDefined();
     expect(registry['test-spawn-003'].branch).toBe('clone/test-spawn-003');
   });
+
+  test('setup.sh includes --ignore-scripts in npm install (B2)', async () => {
+    const spawner = new CloneSpawner();
+    handle = await spawner.createWorktree('test-spawn-b2', 'code');
+
+    const setupPath = path.join(handle.path, 'setup.sh');
+    const content = fs.readFileSync(setupPath, 'utf-8');
+    expect(content).toContain('--ignore-scripts');
+    expect(content).toContain('--prefer-offline');
+    expect(content).toContain('--no-audit');
+    expect(content).toContain('--no-fund');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -211,7 +223,7 @@ describe('CloneTeardown', () => {
 // A2: buildCloneEnv() — sensitive key stripping
 // ---------------------------------------------------------------------------
 
-describe('buildCloneEnv', () => {
+describe('buildCloneEnv (B1 allowlist)', () => {
   const originalEnv = { ...process.env };
 
   afterEach(() => {
@@ -224,28 +236,31 @@ describe('buildCloneEnv', () => {
     }
   });
 
-  test('strips VAULT_MASTER_PASSWORD from clone env', () => {
+  test('only contains keys from REQUIRED_ENV_KEYS + scoped keys', () => {
+    process.env.MY_SECRET = 'should-not-appear';
     process.env.VAULT_MASTER_PASSWORD = 'super-secret';
     const env = buildCloneEnv();
+    expect(env['MY_SECRET']).toBeUndefined();
     expect(env['VAULT_MASTER_PASSWORD']).toBeUndefined();
   });
 
-  test('strips all sensitive keys', () => {
-    process.env.VAULT_MASTER_PASSWORD = 'x';
-    process.env.ANTHROPIC_API_KEY = 'y';
-    process.env.TELEGRAM_BOT_TOKEN = 'z';
-    process.env.TELEGRAM_CHAT_ID = 'w';
+  test('an arbitrary env var on the host is NOT present in clone env', () => {
+    process.env.RANDOM_HOST_VAR = 'leaked';
     const env = buildCloneEnv();
-    expect(env['VAULT_MASTER_PASSWORD']).toBeUndefined();
-    expect(env['ANTHROPIC_API_KEY']).toBeUndefined();
-    expect(env['TELEGRAM_BOT_TOKEN']).toBeUndefined();
-    expect(env['TELEGRAM_CHAT_ID']).toBeUndefined();
+    expect(env['RANDOM_HOST_VAR']).toBeUndefined();
   });
 
-  test('preserves non-sensitive keys (PATH, HOME)', () => {
+  test('PATH and HOME are present', () => {
     const env = buildCloneEnv();
     expect(env['PATH']).toBeDefined();
     expect(env['HOME']).toBeDefined();
+  });
+
+  test('scoped keys are merged into env', () => {
+    const env = buildCloneEnv({ ANTHROPIC_API_KEY: 'task-key', CUSTOM: 'val' });
+    expect(env['ANTHROPIC_API_KEY']).toBe('task-key');
+    expect(env['CUSTOM']).toBe('val');
+    expect(env['PATH']).toBeDefined();
   });
 });
 

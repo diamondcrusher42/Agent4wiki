@@ -1,0 +1,5 @@
+{
+  "maxRetries": 3,
+  "timeoutMs": 300000,
+  "watchdogMaxAgeMinutes": 30
+}

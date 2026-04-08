@@ -141,9 +141,10 @@ test('revokeEnvironment deletes .env file', async () => {
     await km.provisionEnvironment(provisionDir, ['TEST_KEY']);
     expect(fs.existsSync(path.join(provisionDir, '.env'))).toBe(true);
 
-    const clean = await km.revokeEnvironment(provisionDir);
+    const result = await km.revokeEnvironment(provisionDir);
     expect(fs.existsSync(path.join(provisionDir, '.env'))).toBe(false);
-    expect(clean).toBe(true);
+    expect(result.clean).toBe(true);
+    expect(result.largeFilesSkipped).toEqual([]);
 
     fs.rmSync(provisionDir, { recursive: true });
   } finally {
@@ -161,8 +162,8 @@ test('revokeEnvironment handles missing .env gracefully', async () => {
   try {
     const km = new KeychainManager();
     // No .env exists — should not throw
-    const clean = await km.revokeEnvironment(tmpDir);
-    expect(clean).toBe(true);
+    const result = await km.revokeEnvironment(tmpDir);
+    expect(result.clean).toBe(true);
   } finally {
     process.cwd = originalCwd;
     fs.rmSync(tmpDir, { recursive: true });
@@ -191,8 +192,8 @@ test('scanForLeaks detects hardcoded vault value', () => {
       "API_KEY = 'sk-ant-api03-my-real-key-1234567890'"
     );
 
-    const clean = (km as any).scanForLeaks(tmpDir);
-    expect(clean).toBe(false); // leak detected
+    const scanRes = (km as any).scanForLeaks(tmpDir);
+    expect(scanRes.clean).toBe(false); // leak detected
   } finally {
     process.cwd = originalCwd;
     fs.rmSync(tmpDir, { recursive: true });
@@ -214,8 +215,8 @@ test('scanForLeaks passes clean directory', () => {
     // Write a clean file
     fs.writeFileSync(path.join(tmpDir, 'main.py'), "print('hello world')");
 
-    const clean = (km as any).scanForLeaks(tmpDir);
-    expect(clean).toBe(true);
+    const scanRes = (km as any).scanForLeaks(tmpDir);
+    expect(scanRes.clean).toBe(true);
   } finally {
     process.cwd = originalCwd;
     fs.rmSync(tmpDir, { recursive: true });
@@ -240,8 +241,8 @@ test('scanForLeaks detects pattern match (Anthropic key format)', () => {
       'const key = "sk-ant-abcdefghijklmnopqrstuvwxyz0123456789ABCDE";'
     );
 
-    const clean = (km as any).scanForLeaks(tmpDir);
-    expect(clean).toBe(false); // pattern match should catch it
+    const scanRes = (km as any).scanForLeaks(tmpDir);
+    expect(scanRes.clean).toBe(false); // pattern match should catch it
   } finally {
     process.cwd = originalCwd;
     fs.rmSync(tmpDir, { recursive: true });
@@ -486,8 +487,8 @@ test('scanForLeaks detects leak in deeply nested file', () => {
 
   try {
     const km = new KeychainManager();
-    const clean = (km as any).scanForLeaks(tmpDir);
-    expect(clean).toBe(false); // pattern match in nested file
+    const scanRes = (km as any).scanForLeaks(tmpDir);
+    expect(scanRes.clean).toBe(false); // pattern match in nested file
   } finally {
     process.cwd = originalCwd;
     fs.rmSync(tmpDir, { recursive: true });
@@ -515,8 +516,8 @@ test('secrets loaded from .env are detected by scanForLeaks (C1)', () => {
     const worktreeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-c1-leak-'));
     fs.writeFileSync(path.join(worktreeDir, 'config.py'), "KEY = 'abcdef123456'");
 
-    const clean = (km as any).scanForLeaks(worktreeDir);
-    expect(clean).toBe(false); // should detect the 12-char secret
+    const scanRes = (km as any).scanForLeaks(worktreeDir);
+    expect(scanRes.clean).toBe(false); // should detect the 12-char secret
 
     fs.rmSync(worktreeDir, { recursive: true });
   } finally {
@@ -538,8 +539,8 @@ test('5-char value does NOT trigger false positive (C1)', () => {
     const worktreeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-c1-clean-'));
     fs.writeFileSync(path.join(worktreeDir, 'config.py'), "DEBUG = True\nPORT = 3000");
 
-    const clean = (km as any).scanForLeaks(worktreeDir);
-    expect(clean).toBe(true); // short values should not trigger
+    const scanRes = (km as any).scanForLeaks(worktreeDir);
+    expect(scanRes.clean).toBe(true); // short values should not trigger
 
     fs.rmSync(worktreeDir, { recursive: true });
   } finally {
@@ -568,8 +569,8 @@ test('secrets loaded from encrypted vault are detected by scanForLeaks (C1)', ()
     const worktreeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-c1-vault-leak-'));
     fs.writeFileSync(path.join(worktreeDir, 'leaked.py'), "API_KEY = 'secret12char'");
 
-    const clean = (km2 as any).scanForLeaks(worktreeDir);
-    expect(clean).toBe(false); // should detect the leaked vault secret
+    const scanRes = (km2 as any).scanForLeaks(worktreeDir);
+    expect(scanRes.clean).toBe(false); // should detect the leaked vault secret
 
     fs.rmSync(worktreeDir, { recursive: true });
   } finally {
@@ -628,8 +629,8 @@ test('scanForLeaks still detects secret after deduplication (C3)', () => {
     const worktreeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-dedup-leak-'));
     fs.writeFileSync(path.join(worktreeDir, 'config.py'), "KEY = 'abcdef1234567890'");
 
-    const clean = (km as any).scanForLeaks(worktreeDir);
-    expect(clean).toBe(false);
+    const scanRes = (km as any).scanForLeaks(worktreeDir);
+    expect(scanRes.clean).toBe(false);
 
     fs.rmSync(worktreeDir, { recursive: true });
   } finally {
@@ -658,9 +659,9 @@ test('scanForLeaks skips files over 1MB (A3)', () => {
     const bigContent = 'x'.repeat(1024 * 1024 + 100) + 'abcdef1234567890';
     fs.writeFileSync(path.join(tmpDir, 'big-file.ts'), bigContent);
 
-    const clean = (km as any).scanForLeaks(tmpDir);
+    const scanRes = (km as any).scanForLeaks(tmpDir);
     // Should be true because the large file is skipped (not scanned)
-    expect(clean).toBe(true);
+    expect(scanRes.clean).toBe(true);
   } finally {
     process.cwd = originalCwd;
     fs.rmSync(tmpDir, { recursive: true });
@@ -682,8 +683,8 @@ test('scanForLeaks skips binary extensions like .png (A3)', () => {
     // Write secret into a .png file (should be skipped)
     fs.writeFileSync(path.join(tmpDir, 'image.png'), 'abcdef1234567890');
 
-    const clean = (km as any).scanForLeaks(tmpDir);
-    expect(clean).toBe(true); // .png skipped
+    const scanRes = (km as any).scanForLeaks(tmpDir);
+    expect(scanRes.clean).toBe(true); // .png skipped
   } finally {
     process.cwd = originalCwd;
     fs.rmSync(tmpDir, { recursive: true });
@@ -705,8 +706,62 @@ test('scanForLeaks still scans normal .ts files under 1MB (A3)', () => {
     // Write a normal-sized .ts file with the secret
     fs.writeFileSync(path.join(tmpDir, 'config.ts'), 'const key = "abcdef1234567890";');
 
-    const clean = (km as any).scanForLeaks(tmpDir);
-    expect(clean).toBe(false); // should detect the leak
+    const scanRes = (km as any).scanForLeaks(tmpDir);
+    expect(scanRes.clean).toBe(false); // should detect the leak
+  } finally {
+    process.cwd = originalCwd;
+    fs.rmSync(tmpDir, { recursive: true });
+    fs.rmSync(vaultDir, { recursive: true });
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// A4: largeFilesSkipped tracking (plan-build-v7)
+// ---------------------------------------------------------------------------
+
+test('scanForLeaks includes large file path in largeFilesSkipped (A4)', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-a4-large-'));
+
+  const originalCwd = process.cwd;
+  const vaultDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-a4-vault-'));
+  fs.writeFileSync(path.join(vaultDir, '.env'), 'SECRET=abcdef1234567890\n');
+  process.cwd = () => vaultDir;
+
+  try {
+    const km = new KeychainManager();
+
+    // Create a file just over 1MB
+    const bigContent = 'x'.repeat(1024 * 1024 + 100);
+    fs.writeFileSync(path.join(tmpDir, 'big-file.ts'), bigContent);
+
+    const scanRes = (km as any).scanForLeaks(tmpDir);
+    expect(scanRes.clean).toBe(true);
+    expect(scanRes.largeFilesSkipped.length).toBe(1);
+    expect(scanRes.largeFilesSkipped[0]).toContain('big-file.ts');
+  } finally {
+    process.cwd = originalCwd;
+    fs.rmSync(tmpDir, { recursive: true });
+    fs.rmSync(vaultDir, { recursive: true });
+  }
+});
+
+test('scanForLeaks returns empty largeFilesSkipped when no large files (A4)', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-a4-nolarge-'));
+
+  const originalCwd = process.cwd;
+  const vaultDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-a4-vault2-'));
+  fs.writeFileSync(path.join(vaultDir, '.env'), 'SECRET=abcdef1234567890\n');
+  process.cwd = () => vaultDir;
+
+  try {
+    const km = new KeychainManager();
+
+    fs.writeFileSync(path.join(tmpDir, 'small.ts'), 'const x = 1;');
+
+    const scanRes = (km as any).scanForLeaks(tmpDir);
+    expect(scanRes.clean).toBe(true);
+    expect(scanRes.largeFilesSkipped).toEqual([]);
   } finally {
     process.cwd = originalCwd;
     fs.rmSync(tmpDir, { recursive: true });

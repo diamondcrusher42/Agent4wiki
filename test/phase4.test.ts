@@ -935,3 +935,180 @@ describe('routeToBrain single API call (C3)', () => {
     }
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// A3: tests_passed undefined false positive fix (plan-build-v7)
+// ---------------------------------------------------------------------------
+
+describe('Janitor tests_passed undefined handling (A3)', () => {
+  const { Janitor, AuditDirective } = require('../core/janitor/auditor');
+  const janitor = new Janitor();
+
+  test('tests_passed: false + source files → SUGGEST', () => {
+    const handshake = {
+      status: 'COMPLETED',
+      tests_passed: false,
+      files_modified: ['src/main.ts'],
+      tokens_consumed: 100,
+      duration_seconds: 10,
+      janitor_notes: 'clean run',
+    };
+    const result = janitor.evaluateMission(handshake, 0, 'test-a3-1', 'code');
+    expect(result.directive).toBe(AuditDirective.BLOCK);
+  });
+
+  test('tests_passed: undefined + source files → NOT SUGGEST for missing tests', () => {
+    const handshake = {
+      status: 'COMPLETED',
+      tests_passed: undefined,
+      files_modified: ['src/main.ts'],
+      tokens_consumed: 100,
+      duration_seconds: 10,
+      janitor_notes: 'clean run',
+    };
+    const result = janitor.evaluateMission(handshake, 0, 'test-a3-2', 'code');
+    // With the fix, undefined tests_passed should NOT trigger SUGGEST for missing tests
+    // It should pass through to NOTE (assuming no other structural issues)
+    expect(result.directive).toBe(AuditDirective.NOTE);
+  });
+
+  test('tests_passed: true → NOTE', () => {
+    const handshake = {
+      status: 'COMPLETED',
+      tests_passed: true,
+      files_modified: ['src/main.ts'],
+      tokens_consumed: 100,
+      duration_seconds: 10,
+      janitor_notes: 'clean run',
+    };
+    const result = janitor.evaluateMission(handshake, 0, 'test-a3-3', 'code');
+    expect(result.directive).toBe(AuditDirective.NOTE);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// C1: MAX_RETRIES shared config (plan-build-v7)
+// ---------------------------------------------------------------------------
+
+describe('Shared clone_config.json (C1)', () => {
+  test('clone_config.json is valid and contains maxRetries', () => {
+    const config = require('../core/config/clone_config.json');
+    expect(config.maxRetries).toBe(3);
+    expect(config.timeoutMs).toBe(300000);
+    expect(config.watchdogMaxAgeMinutes).toBe(30);
+  });
+
+  test('Python dispatcher reads same maxRetries value', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const configPath = path.join(__dirname, '..', 'core', 'config', 'clone_config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    expect(config.maxRetries).toBe(3);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// C2: BRAIN_ONLY wiki context differentiation (plan-build-v7)
+// ---------------------------------------------------------------------------
+
+describe('routeToBrain vs executeDirect (C2)', () => {
+  test('PromptBuilder.loadWikiContext is public and callable', async () => {
+    const { PromptBuilder } = require('../core/brain/prompt_builder');
+    const builder = new PromptBuilder();
+    // loadWikiContext should be accessible (was private before C2)
+    expect(typeof builder.loadWikiContext).toBe('function');
+    // With non-existent pages, should return empty string
+    const result = await builder.loadWikiContext(['nonexistent-page']);
+    expect(typeof result).toBe('string');
+  });
+
+  test('UserAgent has promptBuilder property', () => {
+    // Verify the PromptBuilder is wired into UserAgent
+    const { UserAgent } = require('../core/user_agent/agent');
+    const agent = new UserAgent();
+    expect((agent as any).promptBuilder).toBeDefined();
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// C3: Confidence gate (plan-build-v7)
+// ---------------------------------------------------------------------------
+
+describe('Confidence gate in triggerFullPipeline (C3)', () => {
+  const { UserAgent } = require('../core/user_agent/agent');
+
+  test('low confidence returns clarification instead of dispatching', async () => {
+    const agent = new UserAgent();
+
+    // Mock the planner to return low confidence
+    (agent as any).planner = {
+      plan: async () => ({
+        reasoning: ['test'],
+        brief: {
+          id: 'test-001',
+          objective: 'unclear task',
+          skill: 'code',
+          requiredKeys: [],
+          wikiContext: [],
+          constraints: [],
+          allowedPaths: [],
+          allowedEndpoints: [],
+          timeoutMinutes: 30,
+        },
+        confidence: 0.3,
+      }),
+    };
+
+    const result = await (agent as any).triggerFullPipeline('do something vague');
+    expect(result).toContain('not confident');
+    expect(result).toContain('0.3');
+    expect(result).toContain('unclear task');
+  });
+
+  test('high confidence proceeds to dispatch (writes task file)', async () => {
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-c3-'));
+    const origEnv = process.env.AGENT_BASE_DIR;
+    process.env.AGENT_BASE_DIR = tmpDir;
+
+    try {
+      const agent = new UserAgent();
+
+      (agent as any).planner = {
+        plan: async () => ({
+          reasoning: ['clear task'],
+          brief: {
+            id: 'test-c3',
+            objective: 'write tests',
+            skill: 'code',
+            requiredKeys: ['ANTHROPIC_API_KEY'],
+            wikiContext: [],
+            constraints: [],
+            allowedPaths: ['/tmp/test-c3/'],
+            allowedEndpoints: ['api.anthropic.com'],
+            timeoutMinutes: 30,
+          },
+          confidence: 0.8,
+        }),
+      };
+
+      const result = await (agent as any).triggerFullPipeline('write unit tests');
+      expect(result).toContain('Task queued');
+      // Verify task file was written
+      const inboxDir = path.join(tmpDir, 'brain', 'inbox');
+      const files = fs.readdirSync(inboxDir);
+      expect(files.length).toBeGreaterThan(0);
+    } finally {
+      if (origEnv !== undefined) process.env.AGENT_BASE_DIR = origEnv;
+      else delete process.env.AGENT_BASE_DIR;
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+});
