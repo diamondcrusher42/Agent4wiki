@@ -1,15 +1,21 @@
 # Skill Budget
 
 > Source: [[review-skills-playbook]]
-> Hard constraint: Claude Code silently drops skills beyond ~28 per project with no error feedback.
+> Hard constraint: Claude Code silently drops skills beyond ~28 **per project context** with no error feedback.
+> This is NOT a global repository limit — you can maintain a library of 50+ skills and rotate them per project.
 
 ## The 28-Skill Ceiling
 
-Claude Code has a hard runtime limit of ~28 active skills per project. Skills beyond this cap are silently dropped — no warning, no log entry, no indication of which skill was lost. A single new addition can break an unrelated skill elsewhere.
+Claude Code has a hard runtime limit of ~28 active skills **per project context** (skills loaded from `.claude/skills/` for that project + user-level `~/.claude/skills/`). Skills beyond this cap are silently dropped — no warning, no log entry, no indication of which skill was lost. A single new addition can break an unrelated skill elsewhere.
 
-**Safe operating range:** 25 active skills + 3-4 buffer slots. Never exceed 25 without auditing what's already installed.
+**This is a per-project constraint, not a global one.** The right architecture:
+- **Skill library** — unlimited. Store all skills here, version-controlled and audited.
+- **Active project skills** — curated subset ≤25 per project context. Skills rotate in/out of `.claude/skills/` depending on what that project needs.
+- **Clone worktrees** — each clone gets only the skills for its assigned task. Code clone gets code/review/testing skills. Browser clone gets browser/scraping/form skills. No ceiling issues.
 
-**Janitor responsibility:** Monthly inventory audit of `.claude/skills/` vs the budget tracker in this page. The Janitor flags any approach to the 25-skill ceiling and recommends removals before additions.
+**Safe operating range per project:** 25 active skills + 3-4 buffer slots. Never exceed 25 without auditing what's already installed.
+
+**Janitor responsibility:** Monthly inventory audit of `.claude/skills/` vs the budget tracker. The Janitor flags any approach to the 25-skill ceiling and recommends removals before additions.
 
 ## The 4-Gate Filter
 
