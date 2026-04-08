@@ -360,6 +360,14 @@ Implement `recordOutcome()` and `promote()`:
 
 ---
 
+## Known Edge Cases (from Gemini review — address during implementation)
+
+1. **flushState() token volume** — current trigger (5 DIRECT turns or FULL_PIPELINE) ignores message size. A single 3,000-word paste holds in memory for 4 more turns. MVP is fine; add a `TOKEN_FLUSH_THRESHOLD = 4000` check alongside the turn counter. If `currentTurnTokens > TOKEN_FLUSH_THRESHOLD`, flush immediately regardless of turn count.
+
+2. **Leak scanner short-secret blind spot** — entropy filter `> 16 chars` silently ignores secrets shorter than 16 characters. For the vault implementation: all secrets stored must be ≥ 17 chars (enforce in `addSecret()` with a warning log if shorter). If a short secret must be stored, add it to a separate `exactMatchSecrets: string[]` array that bypasses the length filter in `scanForLeaks()`.
+
+3. **MCP tool name drift** — plan assumes `add_memory`, `get_aaak_summary`, `search_vault`, `delete_memory`, `audit_vault`. If actual MemPalace server uses different names, the adapter silently returns fallbacks (by design). Add a `validateTools()` method to `connect()` that calls `client.listTools()` and logs any expected tools that are missing — this makes the mismatch obvious at startup rather than at first use.
+
 ## Execution Rules
 
 1. **Branch**: stay on `opus-build`. Never commit to `main`.
