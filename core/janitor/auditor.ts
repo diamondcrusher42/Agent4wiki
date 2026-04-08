@@ -71,52 +71,52 @@ export class Janitor {
     taskId: string = 'unknown',
     skill: string = 'code'
   ): AuditResult {
+    let result: AuditResult;
 
     // 1. CIRCUIT BREAKER — same mission failed 3× → escalate to human
     if (currentRetries >= this.maxRetries) {
-      return {
+      result = {
         directive: AuditDirective.BLOCK,
         feedback: `CIRCUIT BREAKER TRIPPED: Clone failed ${this.maxRetries} times. Human intervention required.`,
         escalate_to_human: true
       };
     }
-
     // 2. BLOCKED_IMPOSSIBLE — task cannot be done as specified → Brain must re-plan
-    if (handshake.status === 'BLOCKED_IMPOSSIBLE') {
-      return {
+    else if (handshake.status === 'BLOCKED_IMPOSSIBLE') {
+      result = {
         directive: AuditDirective.BLOCK,
         feedback: `IMPOSSIBLE TASK: ${handshake.reason || 'No reason provided'}. Brain must re-plan.`,
         escalate_to_human: true
       };
     }
-
     // 3. FATAL FAILURES — tests failed or security breach → BLOCK
-    if (handshake.tests_passed === false || handshake.status === 'FAILED_REQUIRE_HUMAN') {
-      return {
+    else if (handshake.tests_passed === false || handshake.status === 'FAILED_REQUIRE_HUMAN') {
+      result = {
         directive: AuditDirective.BLOCK,
         feedback: `CRITICAL FAILURE: Tests did not pass or security boundaries breached. Status: ${handshake.status}`,
         escalate_to_human: handshake.status === 'FAILED_REQUIRE_HUMAN'
       };
     }
-
     // 4. STRUCTURAL MESS — code works but architecture has structural problems → SUGGEST
-    const structuralIssue = this.detectStructuralIssue(handshake);
-    if (structuralIssue) {
-      return {
-        directive: AuditDirective.SUGGEST,
-        feedback: structuralIssue,
-        escalate_to_human: false
-      };
+    else {
+      const structuralIssue = this.detectStructuralIssue(handshake);
+      if (structuralIssue) {
+        result = {
+          directive: AuditDirective.SUGGEST,
+          feedback: structuralIssue,
+          escalate_to_human: false
+        };
+      } else {
+        // 5. PASSABLE → NOTE — merge it
+        result = {
+          directive: AuditDirective.NOTE,
+          feedback: handshake.janitor_notes || 'Clean execution. Merged.',
+          escalate_to_human: false
+        };
+      }
     }
 
-    // 5. PASSABLE → NOTE — merge it, write structured record for Forge
-    const result: AuditResult = {
-      directive: AuditDirective.NOTE,
-      feedback: handshake.janitor_notes || 'Clean execution. Merged.',
-      escalate_to_human: false
-    };
-
-    // Write machine-parseable Forge record (never fails silently — log error but don't block merge)
+    // B2 (v9): Write ForgeRecord for ALL directives, not just NOTE
     this.writeForgeRecord(taskId, skill, handshake, result.directive).catch(err =>
       console.error(`[JANITOR] Failed to write Forge record: ${err}`)
     );

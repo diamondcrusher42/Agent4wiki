@@ -397,13 +397,13 @@ def launch_session(task: Task, context: str, worktree_path: Optional[Path] = Non
     """
     cwd = str(worktree_path) if worktree_path else str(BASE_DIR)
 
-    # Write context to prompt file and pass via @file — avoids credential leakage in /proc/<pid>/cmdline
+    # B3 (v9): Write prompt file inside try/finally to guarantee cleanup on all error paths
     prompt_file = Path(cwd) / ".dispatcher-prompt.md"
-    prompt_file.write_text(context, encoding="utf-8")
-
-    log.info(f"Launching {task.type} session for task {task.id} in {cwd}")
-
     try:
+        prompt_file.write_text(context, encoding="utf-8")
+
+        log.info(f"Launching {task.type} session for task {task.id} in {cwd}")
+
         cmd = ["claude", "--model", task.model, "--print", "--dangerously-skip-permissions",
                "-p", f"@{prompt_file}"]
         env = build_clone_env({"CLAUDE_MODEL": task.model})
@@ -416,10 +416,6 @@ def launch_session(task: Task, context: str, worktree_path: Optional[Path] = Non
             env=env,
         )
 
-        # Clean up prompt file
-        if prompt_file.exists():
-            prompt_file.unlink()
-
         return {
             "status": "COMPLETED" if result.returncode == 0 else "FAILED_RETRY",
             "stdout_full": result.stdout or "",  # keep full for handshake extraction
@@ -429,14 +425,14 @@ def launch_session(task: Task, context: str, worktree_path: Optional[Path] = Non
         }
 
     except subprocess.TimeoutExpired:
-        if prompt_file.exists():
-            prompt_file.unlink()
         return {"status": "FAILED_RETRY", "error": f"Timeout after {task.timeout_minutes} minutes"}
 
     except FileNotFoundError:
+        return {"status": "FAILED_REQUIRE_HUMAN", "error": "claude CLI not found on PATH"}
+
+    finally:
         if prompt_file.exists():
             prompt_file.unlink()
-        return {"status": "FAILED_REQUIRE_HUMAN", "error": "claude CLI not found on PATH"}
 
 
 def execute_task(task: Task) -> dict:

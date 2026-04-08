@@ -458,6 +458,24 @@ describe('CloneRunner setup uses execFile (B2)', () => {
 
 
 // ---------------------------------------------------------------------------
+// B1 (v9): runRepomix uses execFileAsync (no shell interpolation)
+// ---------------------------------------------------------------------------
+
+describe('CloneRunner repomix uses execFileAsync (B1 v9)', () => {
+  test('runRepomix source uses array form, not shell string', () => {
+    const runnerSource = fs.readFileSync(
+      path.join(process.cwd(), 'core', 'clones', 'lifecycle', 'runner.ts'),
+      'utf-8'
+    );
+    // Should use execFileAsync with array args
+    expect(runnerSource).toContain("execFileAsync('npx', ['repomix'");
+    // The old vulnerable pattern (shell string) should not exist
+    expect(runnerSource).not.toContain("execAsync('npx repomix");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
 // C1: Quarantine mode for blocked worktrees (plan-build-v8)
 // ---------------------------------------------------------------------------
 

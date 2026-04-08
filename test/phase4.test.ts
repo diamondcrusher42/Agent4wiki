@@ -1295,3 +1295,54 @@ describe('truncateHistory (C3)', () => {
     expect(result.some((h: any) => h.content === 'old-msg-14')).toBe(true);
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// B2 (v9): ForgeRecord written for ALL directives (NOTE, SUGGEST, BLOCK)
+// ---------------------------------------------------------------------------
+
+describe('Janitor writes ForgeRecord for all directives (B2 v9)', () => {
+  const { Janitor, AuditDirective } = require('../core/janitor/auditor');
+
+  test('NOTE verdict calls writeForgeRecord', () => {
+    const janitor = new Janitor();
+    const spy = jest.spyOn(janitor as any, 'writeForgeRecord').mockResolvedValue(undefined);
+    const handshake = {
+      status: 'COMPLETED', tests_passed: true, files_modified: ['a.ts'],
+      tokens_consumed: 100, duration_seconds: 5, janitor_notes: 'clean',
+    };
+    janitor.evaluateMission(handshake, 0, 'note-task', 'code');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][3]).toBe(AuditDirective.NOTE);
+    spy.mockRestore();
+  });
+
+  test('BLOCK verdict calls writeForgeRecord', () => {
+    const janitor = new Janitor();
+    const spy = jest.spyOn(janitor as any, 'writeForgeRecord').mockResolvedValue(undefined);
+    const handshake = {
+      status: 'BLOCKED_IMPOSSIBLE', tests_passed: false, files_modified: [],
+      tokens_consumed: 0, duration_seconds: 0, janitor_notes: 'impossible',
+      reason: 'no access',
+    };
+    janitor.evaluateMission(handshake, 0, 'block-task', 'code');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][3]).toBe(AuditDirective.BLOCK);
+    spy.mockRestore();
+  });
+
+  test('SUGGEST verdict calls writeForgeRecord', () => {
+    const janitor = new Janitor();
+    const spy = jest.spyOn(janitor as any, 'writeForgeRecord').mockResolvedValue(undefined);
+    const handshake = {
+      status: 'COMPLETED', tests_passed: true,
+      files_modified: ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts'],
+      tokens_consumed: 200, duration_seconds: 10,
+      janitor_notes: 'also fixed some unrelated issues while I was at it',
+    };
+    janitor.evaluateMission(handshake, 0, 'suggest-task', 'code');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][3]).toBe(AuditDirective.SUGGEST);
+    spy.mockRestore();
+  });
+});

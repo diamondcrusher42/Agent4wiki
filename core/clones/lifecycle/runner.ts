@@ -73,7 +73,7 @@ export class CloneRunner {
    */
   private async runRepomix(worktreePath: string): Promise<void> {
     try {
-      await execAsync('npx repomix --output repomix.txt', {
+      await execFileAsync('npx', ['repomix', '--output', 'repomix.txt'], {
         cwd: worktreePath,
         timeout: 2 * 60 * 1000, // 2 minute timeout
       });
