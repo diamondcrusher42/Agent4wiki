@@ -280,20 +280,18 @@ export class UserAgent {
 
     // Compress history every 10 turns
     if (this.conversationHistory.length % 10 === 0 && this.conversationHistory.length > 0) {
-      await this.compressHistory();
+      await this.truncateHistory();
     }
 
     this.saveState();
   }
 
   /**
-   * SUMMARY PIPELINE: Compress conversation history every N turns.
-   * Uses a small local model (BitNet 2B) — zero API cost.
-   * Writes compressed digest to state.json.
+   * Simple recency truncation — not semantic compression.
+   * TODO: wire to Haiku for summarization when history > N turns.
    */
-  private async compressHistory(): Promise<void> {
-    // TODO: Call local BitNet model to compress conversationHistory
-    // MVP: simple truncation
+  private async truncateHistory(): Promise<void> {
+    this.conversationHistory = this.conversationHistory.slice(-10);
     this.state.recent_context_summary = this.conversationHistory
       .slice(-5)
       .map(h => `${h.role}: ${(h.content || '').slice(0, 100)}`)

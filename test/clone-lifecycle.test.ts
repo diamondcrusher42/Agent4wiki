@@ -154,18 +154,30 @@ describe('CloneSpawner.createWorktree', () => {
 // ---------------------------------------------------------------------------
 
 describe('CloneTeardown', () => {
-  test('teardown removes worktree and prunes branch on BLOCK', async () => {
+  test('teardown quarantines worktree on BLOCK', async () => {
     // Setup: create a worktree first
     const spawner = new CloneSpawner();
     const handle = await spawner.createWorktree('test-teardown-001', 'code');
     expect(fs.existsSync(handle.path)).toBe(true);
 
-    // Teardown with BLOCK (no merge)
+    // Teardown with BLOCK (quarantine, no merge)
     const teardown = new CloneTeardown();
     await teardown.teardown(handle, AuditDirective.BLOCK);
 
-    // Worktree should be gone
+    // Original worktree path should be gone (moved to quarantine)
     expect(fs.existsSync(handle.path)).toBe(false);
+
+    // Quarantine dir should exist with the worktree contents
+    const quarantineDir = path.join(process.cwd(), 'state', 'worktrees', 'quarantine');
+    expect(fs.existsSync(quarantineDir)).toBe(true);
+    const entries = fs.readdirSync(quarantineDir);
+    const match = entries.find(e => e.startsWith('test-teardown-001-'));
+    expect(match).toBeDefined();
+
+    // Cleanup quarantine
+    if (match) {
+      fs.rmSync(path.join(quarantineDir, match), { recursive: true });
+    }
 
     // Branch should be gone
     const branches = execSync('git branch', { encoding: 'utf-8' });
@@ -441,5 +453,56 @@ describe('CloneRunner setup uses execFile (B2)', () => {
     expect(runnerSource).toContain("execFile");
     // The old vulnerable pattern should not exist
     expect(runnerSource).not.toContain('`bash "${setupScript}"`');
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// C1: Quarantine mode for blocked worktrees (plan-build-v8)
+// ---------------------------------------------------------------------------
+
+describe('Quarantine mode (C1)', () => {
+  test('BLOCK verdict moves worktree to quarantine, not deleted', async () => {
+    const spawner = new CloneSpawner();
+    const handle = await spawner.createWorktree('test-quarantine-001', 'code');
+    expect(fs.existsSync(handle.path)).toBe(true);
+
+    // Create a file so we can verify it survives in quarantine
+    fs.writeFileSync(path.join(handle.path, 'evidence.txt'), 'forensic evidence');
+
+    const teardown = new CloneTeardown();
+    await teardown.teardown(handle, AuditDirective.BLOCK);
+
+    // Original path gone
+    expect(fs.existsSync(handle.path)).toBe(false);
+
+    // Evidence preserved in quarantine
+    const quarantineDir = path.join(process.cwd(), 'state', 'worktrees', 'quarantine');
+    const entries = fs.readdirSync(quarantineDir);
+    const match = entries.find(e => e.startsWith('test-quarantine-001-'));
+    expect(match).toBeDefined();
+
+    const evidencePath = path.join(quarantineDir, match!, 'evidence.txt');
+    expect(fs.existsSync(evidencePath)).toBe(true);
+    expect(fs.readFileSync(evidencePath, 'utf-8')).toBe('forensic evidence');
+
+    // Cleanup
+    fs.rmSync(path.join(quarantineDir, match!), { recursive: true });
+  });
+
+  test('COMPLETED (NOTE) verdict does normal teardown, not quarantined', async () => {
+    const spawner = new CloneSpawner();
+    const handle = await spawner.createWorktree('test-quarantine-002', 'code');
+
+    const teardown = new CloneTeardown();
+    await teardown.teardown(handle, AuditDirective.NOTE);
+
+    // Should NOT be in quarantine
+    const quarantineDir = path.join(process.cwd(), 'state', 'worktrees', 'quarantine');
+    if (fs.existsSync(quarantineDir)) {
+      const entries = fs.readdirSync(quarantineDir);
+      const match = entries.find(e => e.startsWith('test-quarantine-002-'));
+      expect(match).toBeUndefined();
+    }
   });
 });

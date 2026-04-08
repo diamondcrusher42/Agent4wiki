@@ -13,11 +13,14 @@
 //   4. Remove from worktrees registry
 
 import { execSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import { WorktreeHandle } from './spawner';
 import { AuditDirective } from '../../janitor/auditor';
 
+const execFileAsync = promisify(execFile);
 const REPO_ROOT = process.env.AGENT_BASE_DIR || process.cwd();
 
 export class CloneTeardown {
@@ -35,11 +38,44 @@ export class CloneTeardown {
       await this.mergeWorktree(handle);
     }
 
-    // 2. Remove worktree (always — regardless of directive)
-    await this.removeWorktree(handle);
+    // 2. BLOCK verdict → quarantine worktree for forensics instead of deleting
+    if (directive === AuditDirective.BLOCK) {
+      await this.quarantineWorktree(handle);
+    } else {
+      // 3. Remove worktree (NOTE — already merged)
+      await this.removeWorktree(handle);
+    }
 
-    // 3. Prune git branch
+    // 4. Prune git branch
     await this.pruneBranch(handle.branch);
+  }
+
+  /**
+   * QUARANTINE — move blocked worktree to quarantine dir for forensic review.
+   * Preserves evidence instead of destroying it on BLOCK verdict.
+   */
+  private async quarantineWorktree(handle: WorktreeHandle): Promise<void> {
+    const quarantineDir = path.join(REPO_ROOT, 'state', 'worktrees', 'quarantine');
+    fs.mkdirSync(quarantineDir, { recursive: true });
+    const dest = path.join(quarantineDir, `${handle.cloneId}-${Date.now()}`);
+    try {
+      fs.renameSync(handle.path, dest);
+      // Prune dangling worktree reference from git
+      await execFileAsync('git', ['worktree', 'prune'], { cwd: REPO_ROOT }).catch(() => {});
+      console.log(`[TEARDOWN] Quarantined ${handle.cloneId} → ${dest}`);
+    } catch (err) {
+      console.error(`[TEARDOWN] Quarantine failed for ${handle.cloneId}: ${err}`);
+      // Fall back to normal removal
+      await this.removeWorktree(handle);
+    }
+
+    // Remove from registry
+    const registryPath = path.join(REPO_ROOT, 'state', 'worktrees', 'registry.json');
+    try {
+      const registry = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
+      delete registry[handle.cloneId];
+      fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2));
+    } catch { /* registry may not exist — not fatal */ }
   }
 
   /**

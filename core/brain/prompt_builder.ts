@@ -19,6 +19,13 @@ const SOUL_PATH = process.env.SOUL_PATH || 'wiki/Soul.md';
 const SOUL_PRIVATE_PATH = process.env.SOUL_PRIVATE_PATH || 'state/user_agent/soul-private.md';
 const WIKI_PATH = 'wiki';
 
+function truncateAtLineBoundary(content: string, maxChars: number): string {
+  if (content.length <= maxChars) return content;
+  const truncated = content.slice(0, maxChars);
+  const lastNewline = truncated.lastIndexOf('\n');
+  return lastNewline > 0 ? truncated.slice(0, lastNewline) + '\n...' : truncated + '...';
+}
+
 export class PromptBuilder {
 
   /**
@@ -78,7 +85,7 @@ export class PromptBuilder {
       }
       try {
         const content = await fs.promises.readFile(resolved, 'utf-8');
-        const excerpt = content.slice(0, 800);
+        const excerpt = truncateAtLineBoundary(content, 800);
         if (totalChars + excerpt.length > MAX_TOTAL_CHARS) {
           console.warn(`[PROMPT_BUILDER] Wiki budget reached at ${pageName} — truncating context`);
           break;
