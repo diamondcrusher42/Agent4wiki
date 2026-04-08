@@ -10,8 +10,10 @@ Claude Code has a hard runtime limit of ~28 active skills **per project context*
 
 **This is a per-project constraint, not a global one.** The right architecture:
 - **Skill library** — unlimited. Store all skills here, version-controlled and audited.
-- **Active project skills** — curated subset ≤25 per project context. Skills rotate in/out of `.claude/skills/` depending on what that project needs.
-- **Clone worktrees** — each clone gets only the skills for its assigned task. Code clone gets code/review/testing skills. Browser clone gets browser/scraping/form skills. No ceiling issues.
+- **Clone worktrees** — each clone gets 1 primary skill + 1-3 complementary skills for its specific mission. Code clone: code + review. Browser clone: browser + scraping. No ceiling issues.
+- **Handoff = skill set swap** — when a task crosses domains, hand off to the next agent with a different skill set rather than loading all skills into one agent.
+
+**Design principle: one agent, one mission, one skill set.** The 28-skill ceiling is irrelevant at the clone level — you'll never approach it with 1-5 focused skills per clone. The constraint only matters if you try to make a single agent do everything, which is the wrong pattern anyway.
 
 **Safe operating range per project:** 25 active skills + 3-4 buffer slots. Never exceed 25 without auditing what's already installed.
 
