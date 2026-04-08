@@ -1,0 +1,48 @@
+name: Skill Security Scan
+
+on:
+  pull_request:
+    paths:
+      - 'skills/**'
+      - '.claude/skills/**'
+
+jobs:
+  skill-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check skill file structure
+        run: |
+          echo "=== Scanning skills/ directory ==="
+          for f in skills/*.md; do
+            [ "$f" = "skills/BUDGET.md" ] && continue
+            echo "Checking: $f"
+            # Reject overly broad tool permissions
+            if grep -qE "allowed-tools:.*Bash\(\*\)|allowed-tools:.*Write\(\*\)" "$f"; then
+              echo "ERROR: $f has overly broad permissions (Bash(*) or Write(*))"
+              exit 1
+            fi
+            # Flag network calls
+            if grep -qE "curl|wget|requests\.get|fetch\(|http://|https://" "$f"; then
+              echo "WARNING: $f contains network call patterns — manual review required"
+            fi
+            # Flag obfuscation
+            if grep -qE "base64|atob|btoa|eval\(|exec\(" "$f"; then
+              echo "ERROR: $f contains obfuscated content patterns"
+              exit 1
+            fi
+            echo "  OK: $f"
+          done
+          echo "=== Scan complete ==="
+
+      - name: Budget check
+        run: |
+          count=$(ls skills/*.md 2>/dev/null | grep -v BUDGET.md | wc -l)
+          echo "Skill count: $count / 25 safe limit"
+          if [ "$count" -gt 25 ]; then
+            echo "ERROR: Skill count $count exceeds safe limit of 25"
+            exit 1
+          elif [ "$count" -gt 22 ]; then
+            echo "WARNING: Approaching skill ceiling ($count/25). Review before adding more."
+          fi

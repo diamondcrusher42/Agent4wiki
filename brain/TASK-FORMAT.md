@@ -26,6 +26,7 @@ Drop these JSON files into `brain/inbox/` and the dispatcher picks them up.
   "source": "brain",
   "priority": 3,
   "skill": "code",
+  "required_skills": ["code-review", "testing"],
   "required_keys": ["TELEGRAM_ADMIN_BOT", "TELEGRAM_KIDS_BOT"],
   "wiki_pages": ["entity-telegram-bots", "tool-keychain-agent"],
   "constraints": ["Do not send messages to any chat", "Read-only health check only"],
@@ -43,6 +44,7 @@ Drop these JSON files into `brain/inbox/` and the dispatcher picks them up.
   "source": "brain",
   "priority": 4,
   "skill": "research",
+  "required_skills": ["research"],
   "required_keys": ["EXA_API_KEY", "SCRAPECREATORS_API_KEY"],
   "wiki_pages": ["tool-last30days"],
   "timeout_minutes": 20
