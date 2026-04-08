@@ -2,6 +2,10 @@
 
 Chronological record of all wiki operations. Append-only.
 
+## [2026-04-09] decision | 2-tier Janitor benchmark plan (Forge)
+
+decision-janitor-tiered-benchmark: Jure proposed testing Janitor quality across Haiku/Sonnet/Opus × effort levels. Hypothesis: Tier 1 (Haiku max or Sonnet medium) catches objective findings; Tier 2 (Opus max+extended) additionally catches semantic issues (design contradictions, silent failures, confusion traps). 5 concrete test cases defined. Decision gate: if Tier 1 ≥ 4/5 → single tier; gap ≥ 2 → 2-tier routing in dispatcher. janitor upgrades.md also updated.
+
 ## [2026-04-09] build | plan-build-v9 complete (Opus 4.6)
 
 198→211 tests (+13). 2 commits. A1: dead code removed (30 lines, janitor_evaluate V1 logic). A2: TOCTOU fd-first symlink fix (openSync→realpathSync→fstatSync→readFileSync on same fd). A3: atomic _claim_task() with os.rename, replaces thread-name tracking. B1: runRepomix execFileAsync array form. B2: ForgeRecord written for ALL directives (not just NOTE). B3: .dispatcher-prompt.md in finally block, cleaned on all paths. TSC clean. Branch: opus-build @ 5ffb5e4.
