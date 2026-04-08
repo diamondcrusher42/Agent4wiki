@@ -5,7 +5,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { MemoryStore, MemoryTier } from '../memory_store/interface';
 
 const AUDIT_BOARD_PATH = 'state/janitor/audit-board.md';
@@ -196,9 +196,9 @@ export class WikiScythe {
    */
   private getGitMtime(filePath: string): Date | null {
     try {
-      const result = execSync(`git log --format=%ct -1 "${filePath}"`, {
+      const result = execFileSync('git', ['log', '--format=%ct', '-1', filePath], {
         encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
+        cwd: process.cwd(),
       });
       const timestamp = parseInt(result.trim(), 10);
       if (isNaN(timestamp)) return null;

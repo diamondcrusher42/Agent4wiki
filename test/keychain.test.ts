@@ -637,3 +637,79 @@ test('scanForLeaks still detects secret after deduplication (C3)', () => {
     fs.rmSync(tmpDir, { recursive: true });
   }
 });
+
+
+// ---------------------------------------------------------------------------
+// A3: scanForLeaks OOM guard (plan-build-v6)
+// ---------------------------------------------------------------------------
+
+test('scanForLeaks skips files over 1MB (A3)', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-a3-large-'));
+
+  const originalCwd = process.cwd;
+  const vaultDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-a3-vault-'));
+  fs.writeFileSync(path.join(vaultDir, '.env'), 'SECRET=abcdef1234567890\n');
+  process.cwd = () => vaultDir;
+
+  try {
+    const km = new KeychainManager();
+
+    // Create a file just over 1MB that contains the secret
+    const bigContent = 'x'.repeat(1024 * 1024 + 100) + 'abcdef1234567890';
+    fs.writeFileSync(path.join(tmpDir, 'big-file.ts'), bigContent);
+
+    const clean = (km as any).scanForLeaks(tmpDir);
+    // Should be true because the large file is skipped (not scanned)
+    expect(clean).toBe(true);
+  } finally {
+    process.cwd = originalCwd;
+    fs.rmSync(tmpDir, { recursive: true });
+    fs.rmSync(vaultDir, { recursive: true });
+  }
+});
+
+test('scanForLeaks skips binary extensions like .png (A3)', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-a3-binary-'));
+
+  const originalCwd = process.cwd;
+  const vaultDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-a3-vault-bin-'));
+  fs.writeFileSync(path.join(vaultDir, '.env'), 'SECRET=abcdef1234567890\n');
+  process.cwd = () => vaultDir;
+
+  try {
+    const km = new KeychainManager();
+
+    // Write secret into a .png file (should be skipped)
+    fs.writeFileSync(path.join(tmpDir, 'image.png'), 'abcdef1234567890');
+
+    const clean = (km as any).scanForLeaks(tmpDir);
+    expect(clean).toBe(true); // .png skipped
+  } finally {
+    process.cwd = originalCwd;
+    fs.rmSync(tmpDir, { recursive: true });
+    fs.rmSync(vaultDir, { recursive: true });
+  }
+});
+
+test('scanForLeaks still scans normal .ts files under 1MB (A3)', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-a3-normal-'));
+
+  const originalCwd = process.cwd;
+  const vaultDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-a3-vault-normal-'));
+  fs.writeFileSync(path.join(vaultDir, '.env'), 'SECRET=abcdef1234567890\n');
+  process.cwd = () => vaultDir;
+
+  try {
+    const km = new KeychainManager();
+
+    // Write a normal-sized .ts file with the secret
+    fs.writeFileSync(path.join(tmpDir, 'config.ts'), 'const key = "abcdef1234567890";');
+
+    const clean = (km as any).scanForLeaks(tmpDir);
+    expect(clean).toBe(false); // should detect the leak
+  } finally {
+    process.cwd = originalCwd;
+    fs.rmSync(tmpDir, { recursive: true });
+    fs.rmSync(vaultDir, { recursive: true });
+  }
+});

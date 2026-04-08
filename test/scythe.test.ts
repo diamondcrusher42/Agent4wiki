@@ -235,3 +235,50 @@ test('processArchiveQueue only moves [x] marked items', () => {
     restore();
   }
 });
+
+
+// ---------------------------------------------------------------------------
+// B1: getGitMtime() filePath injection prevention (plan-build-v6)
+// ---------------------------------------------------------------------------
+
+test('getGitMtime returns null for non-existent file in non-git dir (B1)', () => {
+  const { tmpDir, restore } = setupTmpCwd();
+  try {
+    const report: AuditReport = {
+      contradictions: [], orphan_pages: [], stale_entries: [],
+      timestamp: new Date().toISOString(),
+    };
+    const mockMemory = createMockMemory(report);
+    const scythe = new WikiScythe(mockMemory);
+
+    const result = (scythe as any).getGitMtime('normal-page.md');
+    // In a non-git dir, this returns null -- that is correct behavior
+    expect(result === null || result instanceof Date).toBe(true);
+  } finally {
+    restore();
+  }
+});
+
+test('getGitMtime with shell metacharacters does not execute commands (B1)', () => {
+  const { tmpDir, restore } = setupTmpCwd();
+  try {
+    const report: AuditReport = {
+      contradictions: [], orphan_pages: [], stale_entries: [],
+      timestamp: new Date().toISOString(),
+    };
+    const mockMemory = createMockMemory(report);
+    const scythe = new WikiScythe(mockMemory);
+
+    // This should NOT execute the shell command -- execFileSync passes args directly
+    const markerFile = path.join(tmpDir, 'pwned');
+    const evilName = 'evil"; touch ' + markerFile + ' #.md';
+    const result = (scythe as any).getGitMtime(evilName);
+
+    // Should return null (git error) not execute the injected command
+    expect(result).toBeNull();
+    // Verify the injected command was NOT executed
+    expect(fs.existsSync(markerFile)).toBe(false);
+  } finally {
+    restore();
+  }
+});

@@ -33,6 +33,8 @@ export class UserAgent {
   private readonly MAX_HISTORY_ENTRIES = 50;
   private readonly TOKEN_FLUSH_THRESHOLD = 4000; // estimated tokens (~4 chars per token)
   private soulContent: string | null = null; // Cached soul.md content (C2)
+  private soulLoadedAt: number = 0;
+  private readonly SOUL_TTL_MS = 60_000; // 60 seconds
 
   constructor(anthropicClient?: Anthropic) {
     this.anthropic = anthropicClient || new Anthropic();
@@ -124,22 +126,16 @@ export class UserAgent {
    */
   private async routeToBrain(prompt: string): Promise<string> {
     try {
-      const planning = await this.planner.plan(prompt, `brain-${Date.now()}`);
-
-      // A3: Inject conversation history so BRAIN_ONLY mode has prior context
+      const soul = this.loadSoul();
       const history = this.conversationHistory.slice(-11, -1).map(h => ({
         role: h.role as 'user' | 'assistant',
         content: h.content,
       }));
-      // Use the plan's reasoning as context to produce a proper answer
-      const soul = this.loadSoul();
-      const contextPrompt = `The user asked: "${prompt}"\n\nYour planning analysis:\n${planning.reasoning.join('\n')}\n\nNow provide a clear, helpful answer to the user's question based on this analysis.`;
-
       const response = await this.anthropic.messages.create({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1024,
+        max_tokens: 2048,
         system: soul || 'You are a helpful assistant. Provide clear, well-reasoned answers.',
-        messages: [...history, { role: 'user', content: contextPrompt }],
+        messages: [...history, { role: 'user', content: prompt }],
       });
       return response.content
         .filter((b): b is Anthropic.TextBlock => b.type === 'text')
@@ -215,7 +211,10 @@ export class UserAgent {
     let registeredIds: string[] = [];
     try {
       const data = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
-      registeredIds = Array.isArray(data) ? data.map((e: any) => e.id || e.taskId || '') : [];
+      // Registry is an object keyed by cloneId (written by spawner.ts)
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        registeredIds = Object.keys(data);
+      }
     } catch {
       // No registry file — clear all
     }
@@ -231,7 +230,10 @@ export class UserAgent {
    * Load Soul.md content (cached). Used as system prompt for executeDirect and routeToBrain.
    */
   private loadSoul(): string {
-    if (this.soulContent !== null) return this.soulContent;
+    const now = Date.now();
+    if (this.soulContent !== null && (now - this.soulLoadedAt) < this.SOUL_TTL_MS) {
+      return this.soulContent;
+    }
 
     const baseDir = process.env.AGENT_BASE_DIR || process.cwd();
     let content = '';
@@ -251,6 +253,7 @@ export class UserAgent {
     } catch { /* soul-private.md missing is fine */ }
 
     this.soulContent = content.trim();
+    this.soulLoadedAt = Date.now();
     return this.soulContent;
   }
 

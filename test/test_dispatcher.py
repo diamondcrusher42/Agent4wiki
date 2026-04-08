@@ -359,3 +359,28 @@ def test_janitor_evaluate_clean_passes():
         "janitor_notes": "Implementation complete. All tests passing.",
     }
     assert janitor_evaluate(h, 0, "t-clean") == "NOTE"
+
+
+# ---------------------------------------------------------------------------
+# A2: create_worktree() task ID validation (plan-build-v6)
+# ---------------------------------------------------------------------------
+
+from dispatcher import create_worktree
+
+def test_create_worktree_rejects_invalid_task_id():
+    """create_worktree() should reject task IDs with shell metacharacters."""
+    import pytest
+    task = Task(id='evil; rm -rf /', type='clone', objective='test', source='manual')
+    with pytest.raises(ValueError):
+        create_worktree(task)
+
+
+def test_create_worktree_accepts_valid_task_id(tmp_path, monkeypatch):
+    """create_worktree() should proceed normally with a valid task ID."""
+    import dispatcher
+    monkeypatch.setattr(dispatcher, 'BASE_DIR', tmp_path)
+    task = Task(id='valid-task-123', type='clone', objective='test', source='manual')
+    # Will fail at git worktree add (no repo) but should NOT raise ValueError
+    result = create_worktree(task)
+    # Returns None because git command fails (no git repo in tmp_path)
+    assert result is None

@@ -299,6 +299,8 @@ def create_worktree(task: Task) -> Optional[Path]:
     if task.type != "clone":
         return None
 
+    validate_task_id(task.id)
+
     worktree_name = f"clone-{task.skill}-{task.id}"
     branch_name = f"task/{task.id}"
     worktree_path = BASE_DIR / "state" / "worktrees" / worktree_name

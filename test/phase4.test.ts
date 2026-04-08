@@ -341,16 +341,10 @@ describe('UserAgent', () => {
   test('routeToBrain returns error string on failure (B3)', async () => {
     const mockClient = {
       messages: {
-        create: jest.fn().mockResolvedValue({
-          content: [{ type: 'text', text: 'ok' }],
-        }),
+        create: jest.fn().mockRejectedValue(new Error('rate limited')),
       },
     } as any;
     const agent = new UserAgent(mockClient);
-
-    (agent as any).planner = {
-      plan: jest.fn().mockRejectedValue(new Error('rate limited')),
-    };
 
     const result = await (agent as any).routeToBrain('explain something');
     expect(result).toContain('error');
@@ -688,5 +682,256 @@ describe('loadWikiContext total budget cap (B2)', () => {
     expect(result).toContain('Content B');
 
     fs.rmSync(tmpDir, { recursive: true });
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// A1: cleanupStaleWorktrees() registry format fix (plan-build-v6)
+// ---------------------------------------------------------------------------
+
+describe('cleanupStaleWorktrees — registry format fix (A1)', () => {
+  test('keeps IDs present in object-format registry', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-cleanup-a1-'));
+    const stateDir = path.join(tmpDir, 'state', 'user_agent');
+    const worktreeDir = path.join(tmpDir, 'state', 'worktrees');
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.mkdirSync(worktreeDir, { recursive: true });
+
+    // Write state with active_worktrees
+    fs.writeFileSync(path.join(stateDir, 'state.json'), JSON.stringify({
+      last_updated: new Date().toISOString(),
+      current_intent: '',
+      active_worktrees: ['clone-abc', 'clone-def'],
+      open_items: [],
+      recent_context_summary: '',
+      confidence_score: 1.0,
+    }));
+
+    // Write object-format registry (as spawner.ts writes it)
+    fs.writeFileSync(path.join(worktreeDir, 'registry.json'), JSON.stringify({
+      'clone-abc': { path: '/tmp/clone-abc', branch: 'task/abc', createdAt: new Date().toISOString() },
+    }));
+
+    const origEnv = process.env.AGENT_BASE_DIR;
+    process.env.AGENT_BASE_DIR = tmpDir;
+    try {
+      const agent = new UserAgent({ messages: { create: jest.fn() } } as any);
+      (agent as any).state.active_worktrees = ['clone-abc', 'clone-def'];
+      agent.cleanupStaleWorktrees();
+
+      // clone-abc is in registry, clone-def is not
+      expect((agent as any).state.active_worktrees).toEqual(['clone-abc']);
+    } finally {
+      process.env.AGENT_BASE_DIR = origEnv;
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('removes all IDs when registry is empty object', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-cleanup-a1-empty-'));
+    const stateDir = path.join(tmpDir, 'state', 'user_agent');
+    const worktreeDir = path.join(tmpDir, 'state', 'worktrees');
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.mkdirSync(worktreeDir, { recursive: true });
+
+    fs.writeFileSync(path.join(stateDir, 'state.json'), JSON.stringify({
+      last_updated: new Date().toISOString(),
+      current_intent: '',
+      active_worktrees: ['clone-abc'],
+      open_items: [],
+      recent_context_summary: '',
+      confidence_score: 1.0,
+    }));
+
+    // Empty object registry
+    fs.writeFileSync(path.join(worktreeDir, 'registry.json'), '{}');
+
+    const origEnv = process.env.AGENT_BASE_DIR;
+    process.env.AGENT_BASE_DIR = tmpDir;
+    try {
+      const agent = new UserAgent({ messages: { create: jest.fn() } } as any);
+      (agent as any).state.active_worktrees = ['clone-abc'];
+      agent.cleanupStaleWorktrees();
+
+      expect((agent as any).state.active_worktrees).toEqual([]);
+    } finally {
+      process.env.AGENT_BASE_DIR = origEnv;
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('clears all when registry file is missing', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-cleanup-a1-missing-'));
+    const stateDir = path.join(tmpDir, 'state', 'user_agent');
+    fs.mkdirSync(stateDir, { recursive: true });
+
+    fs.writeFileSync(path.join(stateDir, 'state.json'), JSON.stringify({
+      last_updated: new Date().toISOString(),
+      current_intent: '',
+      active_worktrees: ['clone-xyz'],
+      open_items: [],
+      recent_context_summary: '',
+      confidence_score: 1.0,
+    }));
+
+    const origEnv = process.env.AGENT_BASE_DIR;
+    process.env.AGENT_BASE_DIR = tmpDir;
+    try {
+      const agent = new UserAgent({ messages: { create: jest.fn() } } as any);
+      (agent as any).state.active_worktrees = ['clone-xyz'];
+      agent.cleanupStaleWorktrees();
+
+      expect((agent as any).state.active_worktrees).toEqual([]);
+    } finally {
+      process.env.AGENT_BASE_DIR = origEnv;
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// C1: parseMissionBrief retry + fallback (plan-build-v6)
+// ---------------------------------------------------------------------------
+
+describe('parseMissionBrief (C1)', () => {
+  test('parses valid JSON on first try', () => {
+    const planner = new BrainPlanner({ messages: { create: jest.fn() } } as any);
+    const result = (planner as any).parseMissionBrief('{"skill":"code","reasoning":"test"}');
+    expect(result.skill).toBe('code');
+    expect(result.reasoning).toBe('test');
+  });
+
+  test('parses markdown-wrapped JSON', () => {
+    const planner = new BrainPlanner({ messages: { create: jest.fn() } } as any);
+    const raw = '```json\n{"skill":"research","reasoning":"wrapped"}\n```';
+    const result = (planner as any).parseMissionBrief(raw);
+    expect(result.skill).toBe('research');
+  });
+
+  test('returns default brief for completely invalid input', () => {
+    const planner = new BrainPlanner({ messages: { create: jest.fn() } } as any);
+    const result = (planner as any).parseMissionBrief('This is not JSON at all, just plain text.');
+    expect(result.skill).toBe('code');
+    expect(result.confidence).toBe(0.3);
+    expect(result.reasoning).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C2: loadSoul TTL cache (plan-build-v6)
+// ---------------------------------------------------------------------------
+
+describe('loadSoul TTL cache (C2)', () => {
+  test('caches soul content within TTL', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-soul-ttl-'));
+    const wikiDir = path.join(tmpDir, 'wiki');
+    fs.mkdirSync(wikiDir, { recursive: true });
+    fs.writeFileSync(path.join(wikiDir, 'Soul.md'), 'Original soul content');
+
+    const origEnv = process.env.AGENT_BASE_DIR;
+    process.env.AGENT_BASE_DIR = tmpDir;
+    try {
+      const agent = new UserAgent({ messages: { create: jest.fn() } } as any);
+      const soul1 = (agent as any).loadSoul();
+      expect(soul1).toContain('Original soul content');
+
+      // Modify file
+      fs.writeFileSync(path.join(wikiDir, 'Soul.md'), 'Updated soul content');
+
+      // Should still return cached version (within TTL)
+      const soul2 = (agent as any).loadSoul();
+      expect(soul2).toContain('Original soul content');
+    } finally {
+      process.env.AGENT_BASE_DIR = origEnv;
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('re-reads soul content after TTL expires', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-soul-ttl-expire-'));
+    const wikiDir = path.join(tmpDir, 'wiki');
+    fs.mkdirSync(wikiDir, { recursive: true });
+    fs.writeFileSync(path.join(wikiDir, 'Soul.md'), 'Original soul');
+
+    const origEnv = process.env.AGENT_BASE_DIR;
+    process.env.AGENT_BASE_DIR = tmpDir;
+    try {
+      const agent = new UserAgent({ messages: { create: jest.fn() } } as any);
+      const soul1 = (agent as any).loadSoul();
+      expect(soul1).toContain('Original soul');
+
+      // Simulate TTL expiry by backdating soulLoadedAt
+      (agent as any).soulLoadedAt = Date.now() - 120_000; // 2 minutes ago
+
+      // Update file
+      fs.writeFileSync(path.join(wikiDir, 'Soul.md'), 'Updated soul');
+
+      const soul2 = (agent as any).loadSoul();
+      expect(soul2).toContain('Updated soul');
+    } finally {
+      process.env.AGENT_BASE_DIR = origEnv;
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C3: routeToBrain single API call (plan-build-v6)
+// ---------------------------------------------------------------------------
+
+describe('routeToBrain single API call (C3)', () => {
+  test('makes exactly 1 API call', async () => {
+    const mockCreate = jest.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'Brain response' }],
+    });
+    const mockClient = { messages: { create: mockCreate } };
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-brain-c3-'));
+    const origEnv = process.env.AGENT_BASE_DIR;
+    process.env.AGENT_BASE_DIR = tmpDir;
+
+    try {
+      const agent = new UserAgent(mockClient as any);
+      const result = await (agent as any).routeToBrain('What is X?');
+
+      expect(result).toBe('Brain response');
+      // Should be exactly 1 call (not 2 like before)
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+    } finally {
+      process.env.AGENT_BASE_DIR = origEnv;
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('includes conversation history in the call', async () => {
+    const mockCreate = jest.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'Response with context' }],
+    });
+    const mockClient = { messages: { create: mockCreate } };
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-brain-c3-history-'));
+    const origEnv = process.env.AGENT_BASE_DIR;
+    process.env.AGENT_BASE_DIR = tmpDir;
+
+    try {
+      const agent = new UserAgent(mockClient as any);
+      // Add some conversation history
+      (agent as any).conversationHistory = [
+        { role: 'user', content: 'Previous question', timestamp: new Date().toISOString() },
+        { role: 'assistant', content: 'Previous answer', timestamp: new Date().toISOString() },
+      ];
+
+      await (agent as any).routeToBrain('Follow-up question');
+
+      const callArgs = mockCreate.mock.calls[0][0];
+      expect(callArgs.max_tokens).toBe(2048);
+      // Should have history + current prompt
+      expect(callArgs.messages.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      process.env.AGENT_BASE_DIR = origEnv;
+      fs.rmSync(tmpDir, { recursive: true });
+    }
   });
 });

@@ -93,14 +93,7 @@ export class BrainPlanner {
       .map(b => b.text)
       .join('');
 
-    // Extract JSON from response (handle markdown code fences if present)
-    const jsonStr = text.replace(/^```json?\s*/m, '').replace(/```\s*$/m, '').trim();
-    let planData: any;
-    try {
-      planData = JSON.parse(jsonStr);
-    } catch (e) {
-      throw new Error(`BrainPlanner: Haiku returned malformed JSON. Raw: ${jsonStr.slice(0, 200)}`);
-    }
+    const planData = this.parseMissionBrief(text);
 
     return {
       reasoning: [planData.reasoning || 'No reasoning provided'],
@@ -116,6 +109,35 @@ export class BrainPlanner {
         timeoutMinutes: planData.timeoutMinutes || 30,
       },
       confidence: 0.8, // MVP — static until Sequential Thinking MCP integrated
+    };
+  }
+
+  /**
+   * Parse MissionBrief JSON from raw LLM output with retry and fallback (C1).
+   */
+  private parseMissionBrief(raw: string): any {
+    // Try 1: strip markdown fences and parse
+    const stripped = raw.replace(/```(?:json)?\n?/g, '').trim();
+    try { return JSON.parse(stripped); } catch {}
+
+    // Try 2: extract first {...} block
+    const match = stripped.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch {}
+    }
+
+    // Fallback: safe default brief
+    console.error('[PLANNER] Failed to parse MissionBrief — using default');
+    return {
+      skill: 'code',
+      requiredKeys: ['ANTHROPIC_API_KEY'],
+      wikiContext: [],
+      constraints: [],
+      allowedPaths: [],
+      allowedEndpoints: ['api.anthropic.com'],
+      timeoutMinutes: 30,
+      reasoning: raw.slice(0, 200),
+      confidence: 0.3,
     };
   }
 }

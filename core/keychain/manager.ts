@@ -216,6 +216,12 @@ export class KeychainManager {
   /**
    * THE LEAK SCANNER: Prevents Clones from hardcoding API keys into source code.
    */
+  private static readonly MAX_SCAN_FILE_BYTES = 1 * 1024 * 1024; // 1MB
+  private static readonly BINARY_EXTENSIONS = new Set([
+    '.png', '.jpg', '.jpeg', '.gif', '.ico', '.woff', '.ttf', '.eot',
+    '.pdf', '.zip', '.gz', '.tar', '.bin', '.exe', '.dll', '.so', '.node',
+  ]);
+
   private scanForLeaks(worktreePath: string): boolean {
     const patternsPath = path.join(__dirname, 'config', 'patterns.yaml');
     const patterns: Array<{name: string, regex: string, severity: string}> = [];
@@ -246,6 +252,19 @@ export class KeychainManager {
       const resolved = path.resolve(filePath);
       const rel = path.relative(path.resolve(worktreePath), resolved);
       if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue;
+
+      // A3: Skip binary files by extension
+      const ext = path.extname(resolved).toLowerCase();
+      if (KeychainManager.BINARY_EXTENSIONS.has(ext)) continue;
+
+      // A3: Skip files larger than 1MB to prevent OOM
+      try {
+        const stat = fs.statSync(resolved);
+        if (stat.size > KeychainManager.MAX_SCAN_FILE_BYTES) {
+          console.warn(`[KEYCHAIN] Skipping large file (${stat.size} bytes): ${resolved}`);
+          continue;
+        }
+      } catch { continue; }
 
       let content: string;
       try {
