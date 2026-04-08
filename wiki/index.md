@@ -1,8 +1,8 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-08
-> Total pages: 79
-> Sources ingested: 8 repos/articles + 1 architecture session + 13 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
+> Total pages: 80
+> Sources ingested: 8 repos/articles + 1 architecture session + 14 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
 
 ## Templates
 
@@ -94,13 +94,14 @@
 - [[build-state-2026-04-08-phase57]] — Phase 5-7 complete: AES vault, MCP transport, WikiScythe, fleet routing, Forge core. 84 tests all green. Commit 2960b4d.
 - [[review-gemini-review88]] — Gemini Phase 5-7 review: 2 critical (stdout JSON parsing, git-as-queue), 3 blind spots (Docker isolation, file locking, orphan watchdog), 3 low-hanging fruits. Priority action order included.
 - [[review-opus-review88]] — Opus 5-role deep review: 3 critical security (SSH injection, VAULT_MASTER_PASSWORD in clone env, noLeaks ignored), dual-pipeline debt, Forge entirely unproven. Scores: Brain 7, UA 4, Clone 5, Forge 3, Janitor 6, Docs 9.
-- [[plan-build-v3]] — Phase A/B/C Opus build brief: 3 security fixes, 4 reliability fixes, 3 quality improvements. Target: 84 → 102 tests.
+- [[plan-build-v3]] — Phase A/B/C Opus build brief: 3 security fixes, 5 reliability fixes (incl. B3b wiki path), 3 quality improvements. Target: 84 → 104 tests.
 - [[plan-forge-benchmarking]] — Full benchmark plan: 3 concrete tasks from Agent4wiki codebase, JSONL automation, Phase 1 (effort) + Phase 2 (context window) + Forge integration path.
 - [[benchmark-results]] — Phase 1+2 results. Phase 2 (Forge): all 6 combos 10/10 correctness. Opus medium wins (6k tok, 1.6 min). Haiku medium worst (19.6k tok). Forge scheduling: run at token reset for $0 cost.
 - [[decision-effort-level-routing]] — When to use --effort max vs medium. Max wins on security fixes + precision wiring. Never use high. Routing rules included.
 - [[build-state-2026-04-08-forge]] — Forge Benchmark tool: parallel model×effort runner, zero manual steps, prompt-as-file. Scorer bugs fixed: worktree path + test location. Repo: diamondcrusher42/forge-benchmark.
 - [[review-skills-playbook]] — V4 Skills Playbook: 28-skill ceiling, 4-gate triage, 5-layer security (Docker sandbox, Nemotron LLM-on-LLM, Keychain scoping), Quarantine→Probation→Production pipeline, Forge owns lifecycle.
 - [[code-suggestions-skills]] — 7 concrete code changes: required_skills task field, provisionSkills() spawner, skills/ library, Docker sandbox flag, per-skill scopes.yaml, GitHub Actions gate, Janitor skill audit. Ordered by phase.
+- [[review-opus-review89]] — Opus 5-perspective review (post Phase 5-7): Security 4, Reliability 5, Tests 6, Architecture 7, Prod 3. Top 3 beyond v3: unify TS/Python Janitor, 2-pass classifier, Forge cost cap. 6 more candidates for plan-build-v4.
 
 ## Log
 
