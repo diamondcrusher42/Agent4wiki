@@ -1,17 +1,19 @@
-# Build Plan V9 — Dead Code, EXDEV Quarantine, Python Allowlist, Threading Lock
+# Build Plan V9 — Stripped to What's Actually Missing
 
 > Author: Kevin (agent orchestrator)
 > Date: 2026-04-09
 > Target: Opus 4.6, fresh session, opus-build branch
-> Source reviews: [[review-gemini-review95]] + [[review-janitor-audit3]]
-> Scope: Critical bugs before testing, reliability hardening, code hygiene
+> Source reviews: [[review-gemini-review95]] + [[review-janitor-audit3]] + [[review-opus-review95]]
+> Scope: 6 targeted fixes — everything else from prior plan is already done
 
 ## Context
 
 Branch `opus-build` at commit `2db5381`. 198 tests (156 Jest + 42 pytest), all green. TSC clean.
 Read `wiki/decisions/build-state-2026-04-08-v8.md` for full picture.
 
-**Do NOT touch** `wiki/`, `main` branch, or README (unless explicitly listed below).
+**Critical note from Opus review:** A2, A3, A4, B2, B3, C1, C2, C3 from plan-build-v8 are **already implemented**. Do NOT re-implement them. Read the code before writing anything.
+
+**Do NOT touch** `wiki/`, `main` branch.
 
 Run after each phase:
 ```bash
@@ -22,105 +24,88 @@ All must stay green before proceeding.
 
 ---
 
-## Phase A — Critical (must fix before integration testing)
+## Phase A — Critical (5-minute fixes + security)
 
-### A1: Delete dead code block in `janitor_evaluate()` — confirmed by BOTH reviews
+### A1: Delete dead code in `janitor_evaluate()` — confirmed by ALL THREE reviews
 
 **File:** `brain/dispatcher.py`, `janitor_evaluate()`
 
-**Bug (confirmed Gemini 95 + Janitor audit 3):** After the new V2 logic ends with `return "BLOCK"` (around line 671), there is an entire orphaned copy of the V1 evaluation logic (~30 lines) that can never execute. V1 uses `handshake.get("tests_passed", False)` (wrong — treats `None` as falsy) vs V2's correct `handshake.get("tests_passed") is False`. A developer editing the dead block thinking it's live will be confused when nothing changes.
+**Bug:** After the live V2 logic ends with `return "BLOCK"` (~line 375), there are ~40 lines of orphaned V1 evaluation logic. V1 returns SUGGEST on failed tests; V2 correctly returns BLOCK. If someone edits the dead block, nothing changes and they don't know why.
 
-**Fix:** Find and delete the unreachable block. The function should end cleanly after the V2 logic. Pattern to find and remove:
+**Fix:** Read the function. Find the last reachable `return` statement in the V2 logic. Delete everything after it. The cleaned function should have:
 ```python
-# Dead code starts after a `return "BLOCK"` that already exits the function.
-# The dead block looks like:
-    if status == "BLOCKED_IMPOSSIBLE":
-        return "BLOCK"
-    if status == "FAILED_REQUIRE_HUMAN":
-        return "BLOCK"
-    ...
+def janitor_evaluate(handshake: dict, worktree_path: str = '') -> str:
+    # V2 logic only:
+    if handshake.get('status') == 'BLOCKED_IMPOSSIBLE':
+        return 'BLOCK'
+    if handshake.get('tests_passed') is False and handshake.get('source_files'):
+        return 'SUGGEST'
+    if handshake.get('status') == 'COMPLETED':
+        # warn_keywords check
+        ...
+        return 'NOTE'
+    return 'SUGGEST'
+    # NOTHING BELOW THIS LINE
 ```
-Delete everything after the last reachable `return` statement in `janitor_evaluate()`.
 
 **Tests:**
-- `{status: "BLOCKED_IMPOSSIBLE"}` → `"BLOCK"` (unchanged)
-- `{status: "COMPLETED", tests_passed: False}` → `"SUGGEST"` (V2 logic is correct)
-- `{tests_passed: None}` → NOT SUGGEST (V2 correctly treats None as absent)
-- Function has no unreachable lines after fix (verify with coverage or manual inspection)
+- `{status: 'BLOCKED_IMPOSSIBLE'}` → `'BLOCK'`
+- `{status: 'COMPLETED', tests_passed: False, source_files: ['a.py']}` → `'SUGGEST'`
+- `{status: 'COMPLETED', tests_passed: None}` → NOT SUGGEST (None is not False)
+- `{status: 'COMPLETED', tests_passed: True}` → `'NOTE'`
 
-### A2: Fix quarantine EXDEV crash — cross-filesystem rename
+### A2: Fix TOCTOU race in symlink boundary check
 
-**File:** `core/clones/lifecycle/teardown.ts`, `quarantineWorktree()`
+**File:** `core/keychain/manager.ts`, `scanForLeaks()`
 
-**Bug (Gemini 95 critical):** `fs.renameSync(worktreePath, dest)` throws `EXDEV` if the worktree (e.g., `/tmp`) and the quarantine dir (`state/worktrees/quarantine/`) are on different filesystem partitions. Node silently falls back and **deletes the worktree** — losing all forensic data without any indication.
+**Bug (Opus CRIT-2):** Current code calls `fs.realpathSync(filePath)` then `fs.readFileSync(resolved)` as separate syscalls. Between them, an attacker controlling the worktree could swap the symlink target. For a credential scanner this is a real exploit path.
 
-**Fix:** Catch `EXDEV` and fall back to copy-then-delete:
+**Fix — open fd first, then check, then read from same fd:**
 ```typescript
-async function quarantineWorktree(worktreePath: string, cloneId: string, repoRoot: string): Promise<void> {
-  const quarantineDir = path.join(repoRoot, 'state', 'worktrees', 'quarantine');
-  fs.mkdirSync(quarantineDir, { recursive: true });
-  const dest = path.join(quarantineDir, `${cloneId}-${Date.now()}`);
-  
-  try {
-    fs.renameSync(worktreePath, dest);
-  } catch (err: any) {
-    if (err.code === 'EXDEV') {
-      // Cross-device move — copy then delete
-      fs.cpSync(worktreePath, dest, { recursive: true });
-      fs.rmSync(worktreePath, { recursive: true, force: true });
-    } else {
-      throw err; // Re-throw unexpected errors
-    }
+let fd: number | null = null;
+try {
+  fd = fs.openSync(filePath, 'r');
+  const realPath = fs.realpathSync(filePath);
+  const resolvedWorktree = path.resolve(worktreePath);
+  if (!realPath.startsWith(resolvedWorktree + path.sep) && realPath !== resolvedWorktree) {
+    largeFilesSkipped.push(`SYMLINK_ESCAPE: ${filePath}`);
+    continue;
   }
-  
-  // Prune dangling worktree reference from git
-  await execFileAsync('git', ['worktree', 'prune'], { cwd: repoRoot }).catch(() => {});
+  const stat = fs.fstatSync(fd);
+  if (stat.size > MAX_FILE_SIZE) {
+    largeFilesSkipped.push(filePath);
+    continue;
+  }
+  const content = fs.readFileSync(fd, 'utf-8');
+  // scan content...
+} catch {
+  // File unreadable — skip
+} finally {
+  if (fd !== null) fs.closeSync(fd);
 }
 ```
 
 **Tests:**
-- EXDEV error → worktree contents preserved at dest, source removed
-- Normal rename (same filesystem) → still works
-- BLOCK verdict → quarantine runs, not delete
+- Symlink pointing outside worktree at scan time → SYMLINK_ESCAPE (still caught)
+- Normal file scanned correctly (regression)
+- Large file → in largeFilesSkipped
 
-### A3: Convert Python `build_clone_env()` from blacklist to allowlist
+### A3: Fix `watch()` task pickup race — atomic rename instead of thread-name tracking
 
-**File:** `brain/dispatcher.py`, `build_clone_env()`
+**File:** `brain/dispatcher.py`, `watch()` and `process_task_file()`
 
-**Bug (Gemini 95 + Opus 94 recurring):** TypeScript `buildCloneEnv()` uses a strict allowlist (`REQUIRED_ENV_KEYS`). Python `build_clone_env()` uses a blacklist (`SENSITIVE_ENV_KEYS` strip). A new credential like `AWS_SECRET_ACCESS_KEY` on the host leaks via Python path but not TS path. Two different security postures for the same operation.
+**Bug (Opus HIGH-5, Gemini S1):** Thread name tracking (`active_names`) prevents the same task from being queued twice but doesn't prevent two threads from seeing the same file before either moves it to `active/`.
 
-**Fix:** Replace the blacklist approach with an allowlist matching TS:
+**Fix:** Use atomic `os.rename()` on pickup. Only the thread that succeeds the rename processes the task:
 ```python
-REQUIRED_ENV_KEYS = {
-    'PATH', 'HOME', 'NODE_ENV', 'TMPDIR', 'LANG', 'LC_ALL', 'SHELL', 'USER'
-}
-
-def build_clone_env(extra: dict | None = None) -> dict:
-    """Allowlist-based env — only safe system keys + task-scoped keys."""
-    env = {k: os.environ[k] for k in REQUIRED_ENV_KEYS if k in os.environ}
-    if extra:
-        env.update(extra)
-    return env
-```
-
-Remove `SENSITIVE_ENV_KEYS` entirely — no longer needed.
-
-**Tests:**
-- `build_clone_env()` only contains keys from REQUIRED_ENV_KEYS + extra
-- `AWS_SECRET_ACCESS_KEY` on host → NOT in clone env
-- `VAULT_MASTER_PASSWORD` on host → NOT in clone env (was in blacklist, still excluded by allowlist)
-- `PATH` and `HOME` present (safe system keys)
-- `extra={'TASK_KEY': 'val'}` → preserved
-
-### A4: Add `threading.Lock` to inbox scan in `watch()`
-
-**File:** `brain/dispatcher.py`, `watch()`
-
-**Bug (Janitor audit 3, S1):** `process_task_file()` does `shutil.move()` on shared directories (inbox → active → completed/failed) without locking. Two threads could race on the same task file if the timing is tight.
-
-**Fix:** Use an atomic rename + `FileNotFoundError` catch pattern (or a Lock):
-```python
-_inbox_lock = threading.Lock()
+def _claim_task(self, task_path: Path) -> bool:
+    """Atomically claim a task file. Returns True if this thread claimed it."""
+    active_path = self.active_dir / task_path.name
+    try:
+        os.rename(task_path, active_path)
+        return True
+    except FileNotFoundError:
+        return False  # Another thread already claimed it
 
 def watch(self):
     active_threads = []
@@ -128,17 +113,16 @@ def watch(self):
         active_threads = [t for t in active_threads if t.is_alive()]
         
         if len(active_threads) < MAX_CONCURRENT:
-            with _inbox_lock:
-                tasks = self._get_pending_tasks()
-                active_names = {t.name for t in active_threads}
-                new_tasks = [t for t in tasks if str(t) not in active_names]
-                to_start = new_tasks[:MAX_CONCURRENT - len(active_threads)]
-            
-            for task in to_start:
+            tasks = list(self.inbox_dir.glob('*.json'))
+            for task in tasks:
+                if len(active_threads) >= MAX_CONCURRENT:
+                    break
+                if not self._claim_task(task):
+                    continue  # Already claimed by another thread
+                active_path = self.active_dir / task.name
                 thread = threading.Thread(
-                    target=self.process_task_file,
-                    args=(task,),
-                    name=str(task),
+                    target=self._process_active_task,
+                    args=(active_path,),
                     daemon=True
                 )
                 thread.start()
@@ -148,8 +132,9 @@ def watch(self):
 ```
 
 **Tests:**
-- Two threads don't pick up the same task file (add `FileNotFoundError` guard in `process_task_file` if moved already)
-- Lock doesn't prevent genuine concurrency (different task files still process in parallel)
+- Two threads claiming the same task: only one succeeds
+- Second `_claim_task` on same file → returns False (FileNotFoundError caught)
+- Task eventually processed exactly once
 
 After Phase A: run full suite, confirm green.
 
@@ -157,168 +142,101 @@ After Phase A: run full suite, confirm green.
 
 ## Phase B — Reliability
 
-### B1: Precompile regex patterns in `scanForLeaks()`
+### B1: Fix `runRepomix()` shell interpolation
 
-**File:** `core/keychain/manager.ts`, `scanForLeaks()`
+**File:** `core/clones/lifecycle/runner.ts`, `runRepomix()`
 
-**Bug (Gemini 95):** `new RegExp(pattern.regex).test(content)` is called inside the per-file loop. With N files and M patterns → N×M regex compilations. Should compile once before the file loop.
-
-**Fix:**
-```typescript
-// Before file loop:
-const compiledPatterns = patterns.map(p => ({
-  name: p.name,
-  re: new RegExp(p.regex),
-}));
-
-// In file loop:
-for (const { name, re } of compiledPatterns) {
-  if (re.test(content)) {
-    leaks.push({ file: filePath, pattern: name });
-  }
-}
-```
-
-**Tests:**
-- Leak detected correctly (regression)
-- Performance: no correctness change, just order of operations
-
-### B2: Fix `MAX_HISTORY_ENTRIES` dead code
-
-**File:** `core/user_agent/agent.ts`
-
-**Bug (Gemini 95):** `MAX_HISTORY_ENTRIES = 50` but `truncateHistory()` slices to last 10. The array never reaches 50. The constant is dead code that misleads readers about the actual limit.
-
-**Fix:** Either remove `MAX_HISTORY_ENTRIES` and document the slice count directly in `truncateHistory()`, or align both to the same value:
-```typescript
-private truncateHistory(history: ConversationTurn[]): ConversationTurn[] {
-  // Keeps the 10 most recent turns. TODO: wire to Haiku for summarisation.
-  const MAX_TURNS = 10;
-  return history.slice(-MAX_TURNS);
-}
-```
-Remove the separate `MAX_HISTORY_ENTRIES = 50` constant entirely.
-
-**Tests:**
-- History with 15 turns → returns last 10
-- History with 5 turns → returned unchanged
-- No reference to removed constant anywhere (grep check)
-
-### B3: Verify and fix template variable names
-
-**Files:** `templates/code-clone-TASK.md`, `core/brain/prompt_builder.ts`
-
-**Bug (Janitor audit 3, B3):** Templates may still use old variable names (`{INJECT_SOUL_MD_HERE}`, `{INJECT_BRAIN_DELEGATED_TASK_HERE}`) while `prompt_builder.ts` uses standardised names (`{INJECT_SOUL_HERE}`, `{INJECT_TASK_HERE}`). Silent failure — placeholder string stays in the prompt.
-
-**Fix:** Read `templates/code-clone-TASK.md` and verify it uses exactly:
-```
-{INJECT_SOUL_HERE}
-{INJECT_ALLOWED_PATHS_HERE}
-{INJECT_ALLOWED_ENDPOINTS_HERE}
-{INJECT_WIKI_CONTEXT_HERE}
-{INJECT_TASK_HERE}
-```
-Update any that don't match. These are the canonical names in `prompt_builder.ts`.
-
-**Tests:**
-- `promptBuilder.build(template, vars)` with the template — no `{INJECT_` strings remain in output
-- All 5 injection points are replaced
-
-### B4: Add fallback default in `clone_config.json` import
-
-**File:** `core/clones/clone_worker.ts`
-
-**Bug (Janitor audit 3, minor):** `clone_config.json` import has no fallback. If the JSON file is missing, the import fails and the worker crashes instead of using sane defaults.
+**Bug (Opus HIGH-6):** `runSetup()` was fixed to use `execFileAsync('bash', [setupScript])` but `runRepomix()` still uses `execAsync('npx repomix --output repomix.txt')` with shell interpolation.
 
 **Fix:**
 ```typescript
-let cloneConfig = { maxRetries: 3, timeoutMs: 300000, watchdogMaxAgeMinutes: 30,
-                    confidenceGateThreshold: 0.5, brainWikiPages: ['concept-routing-classifier', 'segment-brain'],
-                    maxWikiContextChars: 2000 };
-try {
-  cloneConfig = { ...cloneConfig, ...require('../config/clone_config.json') };
-} catch {
-  console.warn('clone_config.json not found — using defaults');
-}
+await execFileAsync('npx', ['repomix', '--output', 'repomix.txt'], {
+  cwd: worktreePath,
+  env: cloneEnv,
+});
 ```
 
 **Tests:**
-- Missing config file → worker uses defaults, doesn't crash
-- Present config file → values from file override defaults
+- Repomix runs correctly with array form
+- Path with spaces doesn't break execution
+
+### B2: Unify ForgeRecord write policy
+
+**File:** `core/janitor/auditor.ts`, `evaluateMission()`
+
+**Bug (Opus HIGH-1):** `auditor.ts` only writes ForgeRecord on NOTE. `dispatcher.py` calls `write_forge_record()` on ALL directives. Forge gets different data depending on which path the task took.
+
+**Fix:** Write ForgeRecord for all directives in `auditor.ts`, include the verdict:
+```typescript
+// Write ForgeRecord regardless of verdict (NOTE, SUGGEST, or BLOCK)
+const forgeRecord: ForgeRecord = {
+  task_id: mission.task_id,
+  skill: mission.skill ?? 'unknown',
+  directive: verdict,  // NOTE / SUGGEST / BLOCK
+  tokens_consumed: mission.tokens_consumed ?? 0,
+  duration_seconds: mission.duration_seconds ?? 0,
+  files_modified: mission.files_modified ?? [],
+  timestamp: new Date().toISOString(),
+};
+this.writeForgeRecord(forgeRecord);
+```
+
+**Tests:**
+- NOTE verdict → ForgeRecord written
+- SUGGEST verdict → ForgeRecord written  
+- BLOCK verdict → ForgeRecord written
+- Python path also writes ForgeRecord for all directives (verify in existing pytest)
+
+### B3: Fix `.dispatcher-prompt.md` not cleaned on all error paths
+
+**File:** `brain/dispatcher.py`, `_process_active_task()` or `launch_session()`
+
+**Bug (Opus HIGH-4):** `.dispatcher-prompt.md` is unlinked on success but an exception in `assemble_context()` before the try/finally can leave it in the worktree on crash.
+
+**Fix:** Move the prompt file write inside the try block, and ensure the finally block always deletes it:
+```python
+prompt_file = worktree_path / '.dispatcher-prompt.md'
+try:
+    context = assemble_context(task, worktree_path)
+    prompt_file.write_text(context)
+    result = launch_session(worktree_path, prompt_file)
+    return result
+finally:
+    if prompt_file.exists():
+        prompt_file.unlink()
+```
+
+**Tests:**
+- Exception in `assemble_context` → prompt file does not persist in worktree
+- Successful run → prompt file removed
+- Crash mid-launch → prompt file removed by finally
 
 After Phase B: run full suite, confirm green.
-
----
-
-## Phase C — Polish
-
-### C1: Clean up `raw/dispatcher.py` header
-
-**File:** `raw/dispatcher.py`
-
-Add comment at top:
-```python
-# ARCHIVED — do not run.
-# This is the original design document (pre-implementation).
-# Active version: brain/dispatcher.py
-# Paths here reference agent-v4/ (old) not the current repo structure.
-```
-No other changes to the file.
-
-### C2: Fix `urllib.parse` import position in `bridge.py`
-
-**File:** `brain/bridge.py`
-
-Move `import urllib.parse` from inside/after the `Bridge` class definition to the top of the file with other imports. No functional change — Python resolves it either way, but placing imports after class definitions is unconventional and fails style checks.
-
-### C3: Delete stray `test-output.txt`
-
-**File:** `test-output.txt` (opus-build root)
-
-```bash
-git rm test-output.txt
-```
-
-### C4: Document `.env`-on-disk tradeoff
-
-**File:** `core/keychain/manager.ts`, `provisionEnvironment()` — add comment
-
-The original design stated "credentials exist only in process memory". The implementation writes a `.env` file to the worktree (mode `0o600`), deleted by `revokeEnvironment()` in a `finally` block. Add a comment documenting this as an intentional tradeoff:
-```typescript
-// Note: writes a temporary .env file to the worktree (mode 0o600).
-// This departs from the "process memory only" design goal but is required
-// for Python/shell clone compatibility. revokeEnvironment() deletes it
-// unconditionally in a finally block. Watchdog cleans up any stale .env
-// files from crashed clones. Risk: crash between provision and revoke
-// leaves credentials on disk until watchdog runs.
-```
-
-After Phase C: run full suite, confirm green.
 
 ---
 
 ## Execution Rules
 
 1. **Branch**: `opus-build` only.
-2. **Language**: TypeScript for `core/`. Python for `brain/`.
+2. **Read the code before writing anything.** Several items from prior plans are already done.
 3. **No new npm dependencies.**
 4. **All tests green** after each phase.
-5. **Phase order**: A → B → C.
-6. **Do not refactor** code not mentioned in this plan.
+5. **Phase order**: A → B.
+6. **Do not re-implement** A2-A4, B2, B3, C1-C3 from plan-build-v8 — already done.
 
 ## Verification
 
 ```bash
 npx tsc --noEmit          # must exit 0
-npx jest                  # 198+ tests green
+npx jest                  # 198+ tests green (target ~212)
 python3 -m pytest test/   # 42+ tests green
+git log --oneline -5      # 2-3 commits on opus-build
 ```
 
 ## Expected Final State
 
 | Phase | Changes | New Tests |
 |-------|---------|-----------|
-| A: Critical | Dead code deleted, EXDEV fix, Python allowlist, threading lock | +8 |
-| B: Reliability | Regex precompile, history constant, template fix, config fallback | +6 |
-| C: Polish | Header comment, import fix, delete stray file, .env comment | +2 |
-| **Total** | **~12 files changed** | **+16 tests → ~214 total** |
+| A: Critical | Dead code, TOCTOU atomic fd, atomic task rename | +8 |
+| B: Reliability | runRepomix array form, ForgeRecord unified, prompt file cleanup | +6 |
+| **Total** | **~8 files changed** | **+14 tests → ~212 total** |

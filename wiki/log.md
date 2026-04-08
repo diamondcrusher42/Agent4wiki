@@ -2,6 +2,14 @@
 
 Chronological record of all wiki operations. Append-only.
 
+## [2026-04-09] review | Opus multi-perspective code review 95 (post-v8)
+
+review-opus-review95: 72% readiness, 3 critical findings. CRIT-1: dead code in janitor_evaluate() (~40 lines after return "BLOCK"). CRIT-2: TOCTOU race in scanForLeaks() — realpathSync→readFileSync are separate syscalls, fix with atomic fd. HIGH-5: atomic os.rename() for task pickup (thread-name tracking insufficient). HIGH-6: runRepomix() still uses shell interpolation. HIGH-1: ForgeRecord asymmetry (auditor.ts only writes on NOTE). Key finding: 7 of 9 v8 plan items already implemented — plan-build-v9 rewritten to 6 focused items.
+
+## [2026-04-09] plan | plan-build-v9 revised (stripped from 12 → 6 items)
+
+Opus review confirmed most v9 items already done in v8 (A2, A3, A4, B2, B3, C1, C2, C3 from prior plan). Revised to 6 real gaps: A1 dead code cleanup, A2 TOCTOU atomic fd, A3 atomic task rename, B1 runRepomix execFileAsync, B2 ForgeRecord unified, B3 prompt file finally cleanup. Target: 198 → ~212 tests.
+
 ## [2026-04-08] ingest | Gemini review 94 (post-v7)
 
 review-gemini-review94: Two Brains problem, synchronous watch loop, shell injection runner.ts, quarantine mode missing, context truncation mid-JSON.

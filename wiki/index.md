@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-09
-> Total pages: 101
+> Total pages: 102
 > Sources ingested: 8 repos/articles + 1 architecture session + 14 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
 
 ## Templates
@@ -119,7 +119,8 @@
 - [[build-state-2026-04-08-v8]] — Plan-build-v8 complete: 174→198 tests. Janitor decision tree unified (Python mirrors TS), rename parsing, symlink guard, watch() threaded, execFile array form, confidence+wiki config, quarantine mode. opus-build @ 96002ec.
 - [[review-gemini-review95]] — Gemini post-v8: dead code in Python Janitor (botched merge), quarantine EXDEV crash (cross-filesystem renameSync), Python env still blacklist. Also: regex recompilation, MAX_HISTORY_ENTRIES dead code, watchdog race.
 - [[review-janitor-audit3]] — Janitor audit 3 (Opus-as-Janitor, post-v8): SUGGEST. B1 dead code confirmed, B3 template mismatch, S1 threading race, S5 stale raw/dispatcher.py. 6 fixes before testing. Good patterns preserved. Branch comparison matrix. Design notes for standalone Janitor product.
-- [[plan-build-v9]] — Phase A (dead code, EXDEV quarantine fix, Python allowlist, threading lock) + Phase B (regex precompile, MAX_HISTORY_ENTRIES, template fix, config fallback) + Phase C (polish). Target: 198 → ~214 tests.
+- [[plan-build-v9]] — Stripped to 6 real gaps (Opus confirmed 7 items already done in v8): A1 dead code in janitor_evaluate, A2 TOCTOU atomic fd symlink fix, A3 atomic task rename, B1 runRepomix execFileAsync, B2 ForgeRecord unified policy, B3 prompt file cleanup. Target: 198 → ~212 tests.
+- [[review-opus-review95]] — Opus multi-perspective post-v8 (72% readiness). CRIT-1: dead code janitor_evaluate. CRIT-2: TOCTOU symlink race (openSync→fstatSync→readFileSync). HIGH-5: atomic rename task pickup. HIGH-6: runRepomix shell injection. HIGH-1: ForgeRecord policy asymmetry. 7 of 9 v8 plan items already implemented.
 - [[review-skills-playbook]] — V4 Skills Playbook: 28-skill ceiling, 4-gate triage, 5-layer security (Docker sandbox, Nemotron LLM-on-LLM, Keychain scoping), Quarantine→Probation→Production pipeline, Forge owns lifecycle.
 - [[code-suggestions-skills]] — 7 concrete code changes: required_skills task field, provisionSkills() spawner, skills/ library, Docker sandbox flag, per-skill scopes.yaml, GitHub Actions gate, Janitor skill audit. Ordered by phase.
 - [[review-opus-review89]] — Opus 5-perspective review (post Phase 5-7): Security 4, Reliability 5, Tests 6, Architecture 7, Prod 3. Top 3 beyond v3: unify TS/Python Janitor, 2-pass classifier, Forge cost cap. 6 more candidates for plan-build-v4.
