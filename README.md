@@ -62,6 +62,8 @@ Full origin story and design philosophy: [wiki/decisions/decision-system-philoso
 
 Full build plan with exact code specs + unit tests: [wiki/decisions/plan-build-v1.md](wiki/decisions/plan-build-v1.md)
 
+**Model governance:** Claude Sonnet 4.6 is the default for all tasks in the first implementation — establishing a benchmark baseline before optimising downward (Haiku → Ollama → BitNet). The Forge drives all model transitions through A/B testing and the 5-win ratchet. See [decision-model-governance.md](wiki/decisions/decision-model-governance.md).
+
 ---
 
 ## Architecture in one line
@@ -360,8 +362,9 @@ User message (Telegram)
 | **Decisions** | [Seven Segments](wiki/decisions/decision-seven-segments.md) · [Brain Never Executes](wiki/decisions/decision-brain-never-executes.md) · [TypeScript + Python](wiki/decisions/decision-typescript-python.md) · [Directory Scaffold](wiki/decisions/decision-directory-scaffold.md) |
 | **Why / How** | [decision-system-philosophy.md](wiki/decisions/decision-system-philosophy.md) — origin story, design decisions, roadmap |
 | **Build plan** | [plan-build-v1.md](wiki/decisions/plan-build-v1.md) — Phase 0-4 with exact code + unit tests |
-| **All pages** | [wiki/index.md](wiki/index.md) — 56 pages total |
+| **Opus brief** | [raw/opus-build-brief.md](raw/opus-build-brief.md) — full handoff: 7 segments, decisions, model governance, DoD |
+| **All pages** | [wiki/index.md](wiki/index.md) — 58 pages total |
 
 ---
 
-*56 pages · last updated 2026-04-08 · sources: 8 repos/articles + 1 architecture session + 9 external reviews + 2 build plans + 1 research PDF + 1 multi-channel bridge*
+*58 pages · last updated 2026-04-08 · sources: 8 repos/articles + 1 architecture session + 9 external reviews + 2 build plans + 1 research PDF + 1 multi-channel bridge*
