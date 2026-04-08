@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-08
-> Total pages: 67
+> Total pages: 68
 > Sources ingested: 8 repos/articles + 1 architecture session + 13 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge
 
 ## Templates
@@ -89,6 +89,7 @@
 - [[review-gemini-code-review68]] — Gemini review of opus-build branch: path traversal fix (path.relative), entropy 8→16. False positive: .env 0o600 already correct. MCP transport known TODO. 57 tests green.
 - [[build-state-2026-04-08]] — Full system snapshot: Phases 0-4 done (57 tests), 2 security patches, known TODOs (MCP transport, AES vault, WikiScythe). opus-build branch 6 commits ahead of main.
 - [[plan-forge-benchmarking]] — Full benchmark plan: 3 concrete tasks from Agent4wiki codebase, JSONL automation, Phase 1 (effort) + Phase 2 (context window) + Forge integration path.
+- [[benchmark-results]] — Live benchmark results tracker: S-MED/S-HIGH/S-MAX/H-MED runs, composite scores, tokens, duration. Empty until first run.
 
 ## Log
 
