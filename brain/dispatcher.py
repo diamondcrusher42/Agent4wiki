@@ -33,6 +33,7 @@ File structure expected:
 
 import json
 import os
+import re
 import sys
 import time
 import shutil
@@ -90,8 +91,10 @@ class Task:
     required_keys: list = field(default_factory=list)  # credentials needed from Keychain
     wiki_pages: list = field(default_factory=list)  # specific wiki pages to inject as context
     constraints: list = field(default_factory=list)  # things NOT to do
+    model: str = "claude-sonnet-4-6"  # Sonnet baseline — Forge varies this for A/B
     created_at: str = ""
     timeout_minutes: int = 30
+    retry_count: int = 0  # incremented on SUGGEST re-queue
 
     def __post_init__(self):
         if not self.created_at:
@@ -288,13 +291,16 @@ def launch_session(task: Task, context: str, worktree_path: Optional[Path] = Non
     log.info(f"Launching {task.type} session for task {task.id} in {cwd}")
 
     try:
+        cmd = ["claude", "--model", task.model, "--print", "--dangerously-skip-permissions",
+               "-p", context]
+        env = {**os.environ, "CLAUDE_MODEL": task.model}
         result = subprocess.run(
-            ["claude", "--print", "--dangerously-skip-permissions",
-             "-p", context],
+            cmd,
             cwd=cwd,
             capture_output=True,
             text=True,
             timeout=task.timeout_minutes * 60,
+            env=env,
         )
 
         # Clean up prompt file
@@ -439,6 +445,133 @@ def notify_human(task, directive: str, handshake: dict):
 
 
 # ---------------------------------------------------------------------------
+# Janitor integration (Python-side MVP)
+# ---------------------------------------------------------------------------
+
+def extract_handshake(output: str) -> Optional[dict]:
+    """Extract the JSON handshake block from clone stdout.
+
+    The clone MUST output its JSON handshake as the final line of stdout.
+    We reverse-iterate to find the last line starting with '{', then JSON.parse it.
+    """
+    if not output:
+        return None
+    lines = output.strip().split("\n")
+    for line in reversed(lines):
+        stripped = line.strip()
+        if stripped.startswith("{"):
+            try:
+                obj = json.loads(stripped)
+                if "status" in obj:
+                    return obj
+            except json.JSONDecodeError:
+                continue
+    # Fallback: regex scan for JSON blocks containing "status"
+    matches = re.findall(r'\{[^{}]*"status"[^{}]*\}', output, re.DOTALL)
+    if matches:
+        try:
+            return json.loads(matches[-1])
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
+def janitor_evaluate(handshake: dict, retry_count: int, task_id: str) -> str:
+    """
+    Minimal Python-side Janitor evaluation.
+    Returns: "NOTE" | "SUGGEST" | "BLOCK"
+
+    The full Janitor (core/janitor/auditor.ts) will be called via
+    npx ts-node once the TypeScript lifecycle is wired up. This is the MVP bridge.
+    """
+    status = handshake.get("status", "FAILED_REQUIRE_HUMAN")
+
+    # Circuit breaker
+    if retry_count >= MAX_RETRIES:
+        return "BLOCK"
+
+    if status == "BLOCKED_IMPOSSIBLE":
+        return "BLOCK"
+
+    if status == "FAILED_REQUIRE_HUMAN":
+        return "BLOCK"
+
+    if status == "COMPLETED":
+        tests_passed = handshake.get("tests_passed", False)
+        notes = handshake.get("janitor_notes", "").lower()
+
+        # Structural checks (mirror of auditor.ts detectStructuralIssue)
+        files = handshake.get("files_modified", [])
+        if len(files) > 5 and re.search(r"also fixed|while i was at it|out of scope", notes):
+            log.warning(f"[JANITOR] SCOPE CREEP detected in {task_id}")
+            return "SUGGEST"
+
+        source_files = [f for f in files if re.search(r"\.(ts|js|py)$", f) and "test" not in f]
+        if not tests_passed and source_files:
+            log.warning(f"[JANITOR] MISSING TESTS or tests failed in {task_id}")
+            return "SUGGEST"
+
+        if any(kw in notes for kw in ["hacky", "tech debt", "todo:", "fragile", "slow"]):
+            log.warning(f"[JANITOR] ARCHITECTURAL SMELL in {task_id}: {notes[:100]}")
+            return "SUGGEST"
+
+        return "NOTE"
+
+    if status == "FAILED_RETRY" and retry_count < MAX_RETRIES - 1:
+        return "SUGGEST"
+
+    return "BLOCK"
+
+
+def write_forge_record(task: "Task", directive: str, handshake: dict):
+    """Write a ForgeRecord to forge/events.jsonl for Forge consumption."""
+    record = {
+        "task_id": task.id,
+        "skill": task.skill,
+        "directive": directive,
+        "tokens_consumed": handshake.get("tokens_consumed", 0),
+        "duration_seconds": handshake.get("duration_seconds", 0),
+        "files_modified": handshake.get("files_modified", []),
+        "janitor_notes": handshake.get("janitor_notes", ""),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    forge_log = BASE_DIR / "forge" / "events.jsonl"
+    forge_log.parent.mkdir(parents=True, exist_ok=True)
+    with open(forge_log, "a") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def requeue_task(task: "Task", inbox_dir: Path):
+    """Re-drop a modified task into the inbox with incremented retry counter."""
+    task.retry_count += 1
+    task_data = asdict(task)
+    requeue_path = inbox_dir / f"{task.id}-retry{task.retry_count}.json"
+    with open(requeue_path, "w") as f:
+        json.dump(task_data, f, indent=2)
+    log.info(f"[JANITOR] Re-queued {task.id} (retry {task.retry_count}) to {requeue_path}")
+
+
+def move_to_completed(task: "Task", active_path: Path, output: str):
+    """Move task from active to completed, write result file."""
+    dest = COMPLETED / active_path.name
+    if active_path.exists():
+        shutil.move(str(active_path), str(dest))
+    result_path = dest.with_suffix(".result.json")
+    with open(result_path, "w") as f:
+        json.dump({"task_id": task.id, "status": "COMPLETED", "output": output[-2000:]}, f, indent=2)
+
+
+def move_to_failed(task: "Task", active_path: Path, reason: str):
+    """Move task from active to failed, write result file."""
+    dest = FAILED / active_path.name
+    if active_path.exists():
+        shutil.move(str(active_path), str(dest))
+    result_path = dest.with_suffix(".result.json")
+    with open(result_path, "w") as f:
+        json.dump({"task_id": task.id, "status": "FAILED", "reason": reason[:2000]}, f, indent=2)
+
+
+# ---------------------------------------------------------------------------
 # Task routing
 # ---------------------------------------------------------------------------
 
@@ -470,27 +603,55 @@ def process_task_file(task_path: Path) -> dict:
     # Execute
     result = execute_task(task)
 
-    # Move to completed or failed
-    if result.get("status") == "COMPLETED":
-        dest = COMPLETED / task_path.name
-    else:
-        dest = FAILED / task_path.name
+    # --- Janitor evaluation (Phase 1) ---
+    output = result.get("stdout", "")
+    handshake = extract_handshake(output)
 
-    if active_path.exists():
-        shutil.move(str(active_path), str(dest))
+    if not handshake:
+        # No parseable handshake — treat the raw result status as a fallback
+        if result.get("status") == "COMPLETED":
+            # Session completed but no structured handshake — treat as NOTE
+            handshake = {
+                "status": "COMPLETED",
+                "tests_passed": True,
+                "files_modified": [],
+                "janitor_notes": "No structured handshake — raw completion accepted.",
+                "tokens_consumed": 0,
+                "duration_seconds": 0,
+            }
+        else:
+            log.error(f"[{task.id}] No JSON handshake in clone output — treating as BLOCK")
+            move_to_failed(task, active_path, "No handshake JSON found")
+            log_event("task_finished", {"task_id": task.id, "status": "BLOCK", "type": task.type})
+            notify_human(task, "BLOCK", {"janitor_notes": "No handshake JSON in clone output"})
+            return result
 
-    # Write result alongside the task file
-    result_path = dest.with_suffix(".result.json")
-    with open(result_path, "w") as f:
-        json.dump(result, f, indent=2)
+    directive = janitor_evaluate(handshake, task.retry_count, task.id)
+    write_forge_record(task, directive, handshake)
+
+    if directive == "NOTE":
+        log.info(f"[{task.id}] Janitor: NOTE — merging result")
+        move_to_completed(task, active_path, output)
+        notify_human(task, directive, handshake)
+    elif directive == "SUGGEST":
+        log.info(f"[{task.id}] Janitor: SUGGEST — re-queuing with feedback")
+        task.objective += f"\n\nJanitor feedback: {handshake.get('janitor_notes', '')}"
+        if active_path.exists():
+            active_path.unlink()
+        requeue_task(task, INBOX)
+        notify_human(task, directive, handshake)
+    elif directive == "BLOCK":
+        log.warning(f"[{task.id}] Janitor: BLOCK — escalating to human")
+        move_to_failed(task, active_path, f"Janitor BLOCK: {handshake.get('janitor_notes', '')}")
+        notify_human(task, directive, handshake)
 
     log_event("task_finished", {
         "task_id": task.id,
-        "status": result.get("status"),
+        "status": directive,
         "type": task.type,
     })
 
-    log.info(f"Task {task.id}: {result.get('status')}")
+    log.info(f"Task {task.id}: directive={directive}")
     return result
 
 
