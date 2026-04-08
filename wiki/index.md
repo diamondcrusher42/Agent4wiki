@@ -1,8 +1,8 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-08
-> Total pages: 64
-> Sources ingested: 8 repos/articles + 1 architecture session + 12 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge
+> Total pages: 65
+> Sources ingested: 8 repos/articles + 1 architecture session + 13 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge
 
 ## Templates
 
@@ -86,6 +86,7 @@
 - [[review-gemini-review9]] — Final brief audit: 14 findings applied (TS↔Python boundary, deprecated methods, handshake parsing, injection variables, wiki lookup paths, model flag, scope guard, security DoD tests). Brief v4 ready to send.
 - [[review-janitor-audit2]] — Full repo Janitor audit: 17/25 health score (up from 14). 5 RED (R1-R3 in plan, R3 fixed), 11 YELLOW (Y1/Y3/Y7/Y11 fixed, Y2 fixed with new pages), 6 GREEN. Compile-blocking state unchanged.
 - [[review-mempalace-issues]] — MemPalace independent audit: 7 false README claims, AAAK is lossy (84.2%), wake-up 600-900 tokens not 170, contradiction detection nonexistent, 96.6% is raw ChromaDB. Architecture safe (MemoryStore interface). 5 pages corrected.
+- [[review-gemini-code-review68]] — Gemini review of opus-build branch: path traversal fix (path.relative), entropy 8→16. False positive: .env 0o600 already correct. MCP transport known TODO. 57 tests green.
 
 ## Log
 

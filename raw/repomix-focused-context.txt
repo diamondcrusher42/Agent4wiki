@@ -81,6 +81,7 @@ wiki/
     plan-implementation-v4.md
     review-architecture-audit.md
     review-code-audit-1.md
+    review-gemini-code-review68.md
     review-gemini-review1.md
     review-gemini-review3.md
     review-gemini-review4.md
@@ -126,102 +127,72 @@ wiki/
 <files>
 This section contains the contents of the repository's files.
 
-<file path="wiki/decisions/review-mempalace-issues.md">
-# Review — MemPalace Issues Impact Assessment
+<file path="wiki/decisions/review-gemini-code-review68.md">
+# Review — Gemini Code Review: opus-build Branch
 
 > Date: 2026-04-08
-> Source: `raw/mempalace-issues-impact.md`
-> Researchers: lhl (code review), gizmax (independent benchmark reproduction)
-> Severity for V4: 🟡 MODERATE — architecture insulated, wiki claims corrected
+> Source: `raw/gemini-code-branch-review68.md`
+> Reviewer: Gemini
+> Scope: All Opus-built code — Phases 0-4 (5 commits, 57 tests)
+> Verdict: "90% solution" — 2 real findings patched, 1 false positive, 1 known TODO
 
 ## Summary
 
-Independent researchers found 7 README claims that don't match the MemPalace code. A second researcher independently reproduced the benchmarks, confirming the numbers while exposing the same structural concerns. Both sets of findings are credible, thorough, and reproducible.
+Gemini reviewed the `opus-build` branch (full repomix). Overall verdict: Opus correctly scaffolded the MemoryStore interface, KeychainManager logic, and clone lifecycle — but LLM-generated security checks had two vulnerabilities. Both patched and pushed. 14/14 keychain tests pass after fixes.
 
-## Claim vs Reality
+## Findings
 
-| Claim | Reality |
-|-------|---------|
-| "Contradiction detection" | Does not exist. KG only blocks identical triples. Conflicting facts accumulate silently. |
-| "30x compression, zero information loss" | AAAK is lossy. LongMemEval drops 96.6% → 84.2% (12.4pp loss). |
-| 96.6% LongMemEval R@5 | Real number — but it's ChromaDB's score in raw mode, not palace structure. |
-| "+34% from palace structure" | Standard metadata filtering. Narrowing scope improves precision in any vector DB. |
-| "100% with Haiku rerank" | Not in benchmark scripts. Unverifiable. |
-| Halls structurally enforced | Just metadata strings. Not used in retrieval ranking. |
-| Wake-up ~170 tokens | Actually ~600-900 tokens. Confirmed by gizmax running `mempalace wake-up`. |
+| # | Finding | Severity | Status |
+|---|---------|----------|--------|
+| 1 | Path traversal via `startsWith()` in scanForLeaks | Critical | ✅ Fixed — `path.relative()` |
+| 2 | `.env` missing `0o600` permissions | High | ✅ FALSE POSITIVE — Opus already used `0o600` |
+| 3 | Entropy threshold `> 8` causes false-positive leak alerts | Medium | ✅ Fixed — changed to `> 16` |
+| 4 | MCP transport layer: all stubs, no `StdioClientTransport` | High | ⏳ Known TODO — Phase 1 scope |
 
-Benchmark summary: AAAK mode 84.2%, rooms mode 89.4%, raw mode 96.6%. Both palace-specific modes regress from raw.
+## Finding 1 — Path Traversal (Critical) ✅ Fixed
 
-## V4 Architecture Impact
+`startsWith()` path check in `scanForLeaks` allows a file in `/state/worktrees/clone-12` to pass the `/state/worktrees/clone-1` sandbox boundary check.
 
-**Protected by MemoryStore interface.** The single most important architectural decision is the `MemoryStore` abstraction. The Brain calls `await memory.readContext('L0_WAKE')` and doesn't know what's underneath. Swapping MemPalace is one file change. These issues require wiki corrections and strategy adjustments — not an architecture redesign.
+Fix: `path.relative()` — if result starts with `..` or is absolute, reject.
 
-### Affected areas
+```typescript
+// Before (vulnerable)
+if (!resolved.startsWith(path.resolve(worktreePath))) continue;
 
-**1. Token budget (AAAK wake-up cost)**
-- Was: ~170 tokens. Actual: ~600-900 tokens.
-- Impact: Budget revision only — still cheap, well within any context window.
-- Fix: Updated [[concept-token-economics]], [[concept-aaak-compression]], [[segment-memory]], [[tool-mempalace]].
+// After (safe)
+const rel = path.relative(path.resolve(worktreePath), resolved);
+if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue;
+```
 
-**2. Contradiction detection**
-- Was: assumed MemPalace KG handles it. Actual: KG only blocks exact duplicate triples.
-- Impact: [[segment-janitor]] WikiScythe must implement contradiction detection via semantic similarity (LLM call), not by delegating to MemPalace.
-- Fix: Updated [[segment-janitor]] with explicit V4-implemented note.
+File: `core/keychain/manager.ts:183`
 
-**3. 96.6% benchmark attribution**
-- Was: attributed to MemPalace. Actual: it's ChromaDB's `all-MiniLM-L6-v2` in raw pass-through mode.
-- Impact: Low — raw ChromaDB retrieval being strong is good news. Palace structure is still useful for organization.
-- Fix: Updated [[tool-mempalace]] to clarify benchmark basis.
+## Finding 2 — .env Permissions ✅ False Positive
 
-**4. Palace structure = metadata filtering**
-- Was: implied as novel retrieval breakthrough. Actual: standard metadata filtering that works in any vector DB.
-- Impact: Minimal. Organization + scoped search are still useful regardless of novelty.
-- Fix: Updated [[tool-mempalace]] to be honest about what the structure provides.
+Gemini predicted Opus would omit file permissions. Opus wrote `{ mode: 0o600 }` correctly. No action needed.
 
-**5. Knowledge graph fragility**
-- Naive entity resolution (slugified exact matching). No contradiction detection. Hardcoded column indices.
-- Impact: Cannot rely on KG for multi-entity fact tracking. "Planet Zabave d.o.o." and "PZ d.o.o." are unrelated in the KG.
-- Fix: Use wiki pages + explicit wikilinks for entity relationships. KG is OK for simple temporal triples only.
+## Finding 3 — Entropy Threshold ✅ Fixed
 
-## Revised Memory Strategy
+`filter(v => v.length > 8)` triggers false alarms on short vault values (`DEBUG=true`, `PORT=3000`, etc.) — circuit-breaks the Janitor on every clean clone run. Changed to `> 16`: covers all real tokens (sk-ant-, sk-, AKIA, sk_live_) while ignoring config values.
 
-### Keep
-- MemPalace as storage backend (ChromaDB is genuinely strong — 96.6% R@5)
-- MCP server (20 tools, all functional, no stubs)
-- Wing/room organizational structure (useful for scoped search even if not novel)
-- Verbatim storage in drawers (raw mode is strongest — don't compress quality-critical content)
+File: `core/keychain/manager.ts:174`
 
-### Change
-- **AAAK use**: speed-only (droids, quick context injection). Never for Brain planning or Clone context assembly.
-- **Contradiction detection**: implement at V4 layer (WikiScythe semantic comparison), not delegated to MemPalace.
-- **KG entity resolution**: don't use for complex entity management. Use wiki + wikilinks.
-- **Token budgets**: 170 → 600-900 tokens for wake-up across all pages.
+## Finding 4 — MCP Transport ⏳ Known TODO
 
-### Consider (future)
-- Alternative backends: Qdrant, plain SQLite+FTS5, pgvector — MemoryStore interface makes this a one-file swap.
-- Hybrid search (vector + BM25/FTS) for improved exact-match queries.
+`mempalace_adapter.ts` has all methods stubbed (`// TODO: Initialize MCP client`). Build brief scope was Phase 1 = interface, not full Python bridge. Wire `StdioClientTransport` when MemPalace MCP server is confirmed running:
 
-## Findings vs Verdict
+```typescript
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+const transport = new StdioClientTransport({ command: "python3", args: ["-m", "mempalace", "--mcp"] });
+await this.client.connect(transport);
+```
 
-| Finding | Impact | Action |
-|---------|--------|--------|
-| AAAK lossy | Budget revision | ✅ Fixed — all 170-token references updated |
-| No contradiction detection | WikiScythe self-implement | ✅ Fixed — segment-janitor updated |
-| 96.6% = ChromaDB, not palace | Wiki claim correction | ✅ Fixed — tool-mempalace updated |
-| Palace = metadata filtering | Framing correction | ✅ Fixed — tool-mempalace updated |
-| KG entity resolution fragile | No KG for entity mgmt | ✅ Fixed — tool-mempalace updated |
-| Wake-up 600-900 tokens | Budget revision | ✅ Fixed — 4 pages updated |
-| Architecture still sound | No redesign needed | ✅ Confirmed |
+## Context Note
 
-## Pages Updated
+Gemini suggested "proceed to Phase 3" — Opus already built all 5 phases. Gemini reviewed the repomix without build history context. The code is more complete than Gemini assumed.
 
-| Page | Change |
-|------|--------|
-| [[concept-aaak-compression]] | "lossless" → lossy, add benchmark numbers, 170 → 600-900 tokens |
-| [[concept-token-economics]] | 170 → 600-900 for wake-up |
-| [[segment-memory]] | Compression claim, token budget, contradiction detection attribution |
-| [[segment-janitor]] | WikiScythe contradiction detection must be V4-implemented |
-| [[tool-mempalace]] | Benchmark clarification, KG limitations, "highest-scoring" removed |
+## Commit
+
+`3650a3f` on `opus-build` — both patches applied, 57 tests green.
 </file>
 
 <file path="scripts/bootstrap-linux.sh">
@@ -794,22 +765,6 @@ Write-Host "  3. Start:         Start-ScheduledTask -TaskName '$taskName'"
 Write-Host "     OR manually:   cd $AgentDir; .\venv\Scripts\activate; python brain\dispatcher.py watch"
 Write-Host "  4. Dry run test:  python brain\dispatcher.py dry brain\inbox\example.json"
 Write-Host ""
-</file>
-
-<file path="wiki/concepts/concept-aaak-compression.md">
-# AAAK Compression
-
-> Source: [[tool-mempalace]]
-
-A lossy shorthand dialect designed for AI agents. Not meant to be read by humans — meant to be read by AI, fast. ~30x compression but **not lossless**: independent benchmarks show a 12.4 percentage-point retrieval quality drop (LongMemEval: raw 96.6% → AAAK 84.2%). Works with any model that reads text (Claude, GPT, Gemini, Llama, Mistral). No decoder, no fine-tuning needed.
-
-Example: ~1000 tokens of English about a team and project compresses to ~120 tokens of AAAK. AI learns the dialect automatically from the MemPalace MCP server.
-
-> ⚠️ **AAAK is not zero-loss.** Use raw mode for quality-critical retrieval (Brain planning, Clone context assembly). Use AAAK only where speed matters and 84% recall is acceptable (e.g., quick context injection for droids).
-
-> Source: [[review-mempalace-issues]] (independent benchmark by lhl + gizmax, confirmed reproducible)
-
-Used in [[segment-memory]] for L1 critical facts layer (~120 tokens) and closet storage in the palace. Total wake-up cost: **~600-900 tokens** for full world context (MemPalace `wake-up` command confirmed by independent benchmark — not the originally claimed 170). See [[concept-token-economics]].
 </file>
 
 <file path="wiki/concepts/concept-clone-lifecycle.md">
@@ -5380,6 +5335,104 @@ Not just key scoping — network endpoints also defined per skill. Enforcement c
 *See also: [[review-code-audit-1]], [[review-opus-review5]], [[plan-build-v1]], [[concept-clone-lifecycle]], [[concept-routing-classifier]]*
 </file>
 
+<file path="wiki/decisions/review-mempalace-issues.md">
+# Review — MemPalace Issues Impact Assessment
+
+> Date: 2026-04-08
+> Source: `raw/mempalace-issues-impact.md`
+> Researchers: lhl (code review), gizmax (independent benchmark reproduction)
+> Severity for V4: 🟡 MODERATE — architecture insulated, wiki claims corrected
+
+## Summary
+
+Independent researchers found 7 README claims that don't match the MemPalace code. A second researcher independently reproduced the benchmarks, confirming the numbers while exposing the same structural concerns. Both sets of findings are credible, thorough, and reproducible.
+
+## Claim vs Reality
+
+| Claim | Reality |
+|-------|---------|
+| "Contradiction detection" | Does not exist. KG only blocks identical triples. Conflicting facts accumulate silently. |
+| "30x compression, zero information loss" | AAAK is lossy. LongMemEval drops 96.6% → 84.2% (12.4pp loss). |
+| 96.6% LongMemEval R@5 | Real number — but it's ChromaDB's score in raw mode, not palace structure. |
+| "+34% from palace structure" | Standard metadata filtering. Narrowing scope improves precision in any vector DB. |
+| "100% with Haiku rerank" | Not in benchmark scripts. Unverifiable. |
+| Halls structurally enforced | Just metadata strings. Not used in retrieval ranking. |
+| Wake-up ~170 tokens | Actually ~600-900 tokens. Confirmed by gizmax running `mempalace wake-up`. |
+
+Benchmark summary: AAAK mode 84.2%, rooms mode 89.4%, raw mode 96.6%. Both palace-specific modes regress from raw.
+
+## V4 Architecture Impact
+
+**Protected by MemoryStore interface.** The single most important architectural decision is the `MemoryStore` abstraction. The Brain calls `await memory.readContext('L0_WAKE')` and doesn't know what's underneath. Swapping MemPalace is one file change. These issues require wiki corrections and strategy adjustments — not an architecture redesign.
+
+### Affected areas
+
+**1. Token budget (AAAK wake-up cost)**
+- Was: ~170 tokens. Actual: ~600-900 tokens.
+- Impact: Budget revision only — still cheap, well within any context window.
+- Fix: Updated [[concept-token-economics]], [[concept-aaak-compression]], [[segment-memory]], [[tool-mempalace]].
+
+**2. Contradiction detection**
+- Was: assumed MemPalace KG handles it. Actual: KG only blocks exact duplicate triples.
+- Impact: [[segment-janitor]] WikiScythe must implement contradiction detection via semantic similarity (LLM call), not by delegating to MemPalace.
+- Fix: Updated [[segment-janitor]] with explicit V4-implemented note.
+
+**3. 96.6% benchmark attribution**
+- Was: attributed to MemPalace. Actual: it's ChromaDB's `all-MiniLM-L6-v2` in raw pass-through mode.
+- Impact: Low — raw ChromaDB retrieval being strong is good news. Palace structure is still useful for organization.
+- Fix: Updated [[tool-mempalace]] to clarify benchmark basis.
+
+**4. Palace structure = metadata filtering**
+- Was: implied as novel retrieval breakthrough. Actual: standard metadata filtering that works in any vector DB.
+- Impact: Minimal. Organization + scoped search are still useful regardless of novelty.
+- Fix: Updated [[tool-mempalace]] to be honest about what the structure provides.
+
+**5. Knowledge graph fragility**
+- Naive entity resolution (slugified exact matching). No contradiction detection. Hardcoded column indices.
+- Impact: Cannot rely on KG for multi-entity fact tracking. "Planet Zabave d.o.o." and "PZ d.o.o." are unrelated in the KG.
+- Fix: Use wiki pages + explicit wikilinks for entity relationships. KG is OK for simple temporal triples only.
+
+## Revised Memory Strategy
+
+### Keep
+- MemPalace as storage backend (ChromaDB is genuinely strong — 96.6% R@5)
+- MCP server (20 tools, all functional, no stubs)
+- Wing/room organizational structure (useful for scoped search even if not novel)
+- Verbatim storage in drawers (raw mode is strongest — don't compress quality-critical content)
+
+### Change
+- **AAAK use**: speed-only (droids, quick context injection). Never for Brain planning or Clone context assembly.
+- **Contradiction detection**: implement at V4 layer (WikiScythe semantic comparison), not delegated to MemPalace.
+- **KG entity resolution**: don't use for complex entity management. Use wiki + wikilinks.
+- **Token budgets**: 170 → 600-900 tokens for wake-up across all pages.
+
+### Consider (future)
+- Alternative backends: Qdrant, plain SQLite+FTS5, pgvector — MemoryStore interface makes this a one-file swap.
+- Hybrid search (vector + BM25/FTS) for improved exact-match queries.
+
+## Findings vs Verdict
+
+| Finding | Impact | Action |
+|---------|--------|--------|
+| AAAK lossy | Budget revision | ✅ Fixed — all 170-token references updated |
+| No contradiction detection | WikiScythe self-implement | ✅ Fixed — segment-janitor updated |
+| 96.6% = ChromaDB, not palace | Wiki claim correction | ✅ Fixed — tool-mempalace updated |
+| Palace = metadata filtering | Framing correction | ✅ Fixed — tool-mempalace updated |
+| KG entity resolution fragile | No KG for entity mgmt | ✅ Fixed — tool-mempalace updated |
+| Wake-up 600-900 tokens | Budget revision | ✅ Fixed — 4 pages updated |
+| Architecture still sound | No redesign needed | ✅ Confirmed |
+
+## Pages Updated
+
+| Page | Change |
+|------|--------|
+| [[concept-aaak-compression]] | "lossless" → lossy, add benchmark numbers, 170 → 600-900 tokens |
+| [[concept-token-economics]] | 170 → 600-900 for wake-up |
+| [[segment-memory]] | Compression claim, token budget, contradiction detection attribution |
+| [[segment-janitor]] | WikiScythe contradiction detection must be V4-implemented |
+| [[tool-mempalace]] | Benchmark clarification, KG limitations, "highest-scoring" removed |
+</file>
+
 <file path="wiki/decisions/review-opus-review1.md">
 # Review — Opus Review 1: Deep Dive
 
@@ -6243,60 +6296,6 @@ Every result graded by [[segment-forge]]: did it meet the brief? What could impr
 Full budget per mission. No wasted tokens on context discovery — everything pre-loaded in mission brief. See [[concept-token-economics]].
 </file>
 
-<file path="wiki/segments/segment-memory.md">
-# Memory — The Vault
-
-> Segment 1 of 6. Principle: Everything persists. Nothing is lost. Knowledge compounds.
-
-## Role
-
-Persistent external store that indexes, retrieves, and versions all context across all agents. No agent holds state in conversation — all state lives here.
-
-## Implementation
-
-Two systems combined:
-
-**[[tool-mempalace]]** handles storage and retrieval. Palace structure organizes knowledge into wings (per entity/project), halls (memory types: facts, events, discoveries, preferences, advice), and rooms (specific topics). [[concept-aaak-compression]] provides ~30x compression (lossy — 12.4% retrieval quality drop; use raw mode for quality-critical queries). ChromaDB powers semantic search. Temporal knowledge graph (SQLite) tracks facts with validity windows. ⚠️ Contradiction detection is **V4-implemented** (WikiScythe semantic comparison), not provided by MemPalace — the KG only blocks exact duplicate triples.
-
-**[[tool-llm-wiki]]** (Karpathy pattern) handles knowledge compilation. Raw sources stay immutable. A wiki of interlinked markdown pages is maintained by the system, compounding with every interaction. See [[concept-wiki-pattern]].
-
-## Three Layers
-
-| Layer | Path | Purpose | Who Writes |
-|-------|------|---------|-----------|
-| Raw sources | `memory/raw/` | Immutable originals | Ingest only |
-| Wiki | `memory/wiki/` | Compiled, interlinked knowledge | Brain, designated clones |
-| Palace | `memory/palace/` | Structured store with AAAK compression | All agents (attributed) |
-
-## Token Budget
-
-- L0: Identity (~50 tokens) — always loaded
-- L1: Critical facts (~120 tokens, AAAK) — always loaded
-- L2: Room recall — on demand when topic surfaces
-- L3: Deep search — semantic query across all closets
-
-Total wake-up cost: ~600-900 tokens for full world context (confirmed by independent benchmark — see [[review-mempalace-issues]]). See [[concept-token-economics]].
-
-## Operations
-
-- **Ingest**: source → read → extract → update wiki pages → update index → log. Single source may touch 10-15 pages.
-- **Query**: read index → find relevant pages → synthesize. Good answers filed back as new pages.
-- **Lint**: [[segment-janitor]] runs periodic health checks — contradictions, stale claims, orphans, missing cross-references.
-- **Atomize**: clone outputs broken into atomic Zettelkasten notes, rewritten in user voice (via [[concept-soul-md]]), interlinked, filed.
-
-## Local-First
-
-[[tool-bitnet]] 2B model on CPU powers embedding and retrieval without API costs. Full memory system runs offline.
-
-## Interfaces
-
-- ← [[segment-brain]]: requests context before planning
-- ← [[segment-user-agent]]: writes observation logs
-- ← [[segment-clones]]: read-only mission context
-- ← [[segment-janitor]]: prune commands, integrity audits
-- ← [[segment-forge]]: reads all data for pattern analysis, writes improvement findings
-</file>
-
 <file path="wiki/tools/tool-ai-personal-os.md">
 # AI Personal OS Skills
 
@@ -6622,6 +6621,22 @@ else
   echo "FAIL — $errors issue(s) found"
   exit 1
 fi
+</file>
+
+<file path="wiki/concepts/concept-aaak-compression.md">
+# AAAK Compression
+
+> Source: [[tool-mempalace]]
+
+A lossy shorthand dialect designed for AI agents. Not meant to be read by humans — meant to be read by AI, fast. ~30x compression but **not lossless**: independent benchmarks show a 12.4 percentage-point retrieval quality drop (LongMemEval: raw 96.6% → AAAK 84.2%). Works with any model that reads text (Claude, GPT, Gemini, Llama, Mistral). No decoder, no fine-tuning needed.
+
+Example: ~1000 tokens of English about a team and project compresses to ~120 tokens of AAAK. AI learns the dialect automatically from the MemPalace MCP server.
+
+> ⚠️ **AAAK is not zero-loss.** Use raw mode for quality-critical retrieval (Brain planning, Clone context assembly). Use AAAK only where speed matters and 84% recall is acceptable (e.g., quick context injection for droids).
+
+> Source: [[review-mempalace-issues]] (independent benchmark by lhl + gizmax, confirmed reproducible)
+
+Used in [[segment-memory]] for L1 critical facts layer (~120 tokens) and closet storage in the palace. Total wake-up cost: **~600-900 tokens** for full world context (MemPalace `wake-up` command confirmed by independent benchmark — not the originally claimed 170). See [[concept-token-economics]].
 </file>
 
 <file path="wiki/concepts/concept-dispatcher.md">
@@ -7234,47 +7249,58 @@ This prevents the improvement engine from destabilizing the system it's improvin
 | [[tool-keychain-agent]] | Monitors credential usage. Predicts rate limit exhaustion. Optimizes fallback ordering. |
 </file>
 
-<file path="wiki/tools/tool-mempalace.md">
-# MemPalace
+<file path="wiki/segments/segment-memory.md">
+# Memory — The Vault
 
-Local-first AI memory system. Palace structure: wings (per person/project), halls (memory types: facts, events, discoveries, preferences, advice), rooms (specific topics), closets ([[concept-aaak-compression|AAAK compressed]]), drawers (verbatim transcripts).
+> Segment 1 of 6. Principle: Everything persists. Nothing is lost. Knowledge compounds.
 
-ChromaDB for semantic search (96.6% LongMemEval R@5 in raw mode — this is ChromaDB's `all-MiniLM-L6-v2` score, not a palace-structure score). AAAK mode: 84.2% (−12.4pp), rooms mode: 89.4% (−7.2pp). Both palace-specific modes **regress from raw**. MCP server with 20 tools. Auto-save hooks for Claude Code (catches context before compaction). Specialist agents with diaries map to [[segment-clones]] with persistent skill memory.
+## Role
 
-> ⚠️ **Benchmark clarification:** The 96.6% figure measures ChromaDB embeddings in raw pass-through mode. Palace structural features (wings, rooms, halls) are metadata filtering — they narrow search scope but don't improve the underlying embedding quality.
+Persistent external store that indexes, retrieves, and versions all context across all agents. No agent holds state in conversation — all state lives here.
 
-> ⚠️ **KG limitations:** The SQLite knowledge graph uses slugified names with no entity resolution beyond exact matching. "Planet Zabave d.o.o." and "PZ d.o.o." are unrelated entities in the KG. Contradiction detection is not implemented — conflicting facts accumulate silently. For entity relationships, use wiki pages + explicit wikilinks instead.
+## Implementation
 
-> Source: [[review-mempalace-issues]] (independent code review by lhl, independently reproduced by gizmax)
+Two systems combined:
 
-`pip install mempalace`. Python 3.9+, chromadb, pyyaml. Zero API calls needed. github.com/milla-jovovich/mempalace. MIT license.
+**[[tool-mempalace]]** handles storage and retrieval. Palace structure organizes knowledge into wings (per entity/project), halls (memory types: facts, events, discoveries, preferences, advice), and rooms (specific topics). [[concept-aaak-compression]] provides ~30x compression (lossy — 12.4% retrieval quality drop; use raw mode for quality-critical queries). ChromaDB powers semantic search. Temporal knowledge graph (SQLite) tracks facts with validity windows. ⚠️ Contradiction detection is **V4-implemented** (WikiScythe semantic comparison), not provided by MemPalace — the KG only blocks exact duplicate triples.
 
-## MemoryStore Interface — Phase 1 Deliverable
+**[[tool-llm-wiki]]** (Karpathy pattern) handles knowledge compilation. Raw sources stay immutable. A wiki of interlinked markdown pages is maintained by the system, compounding with every interaction. See [[concept-wiki-pattern]].
 
-> Code: `core/memory_store/interface.ts` + `core/memory_store/mempalace_adapter.ts`
-> Status: V1 done — MemPalaceAdapter implements MemoryStore
+## Three Layers
 
-Nothing outside `core/memory_store/` calls MemPalace directly. The Brain calls `await memory.readContext('L0_WAKE')` — it never knows what backend is running.
+| Layer | Path | Purpose | Who Writes |
+|-------|------|---------|-----------|
+| Raw sources | `memory/raw/` | Immutable originals | Ingest only |
+| Wiki | `memory/wiki/` | Compiled, interlinked knowledge | Brain, designated clones |
+| Palace | `memory/palace/` | Structured store with AAAK compression | All agents (attributed) |
 
-```typescript
-interface MemoryStore {
-  connect(): Promise<void>;
-  write(content, metadata): Promise<string>;       // INGEST
-  readContext(tier, query?): Promise<string>;      // RETRIEVE — L0/L1/L2/L3 tiers
-  search(query, limit?): Promise<[...]>;           // SEARCH — semantic similarity
-  delete(memoryId): Promise<boolean>;              // PRUNE — Janitor only
-}
-```
+## Token Budget
 
-**Architecture wins:**
-- Brain calls `readContext('L0_WAKE')` — budget ~600-900 tokens (independently benchmarked wake-up cost), AAAK logic is inside the adapter
-- Swap MemPalace for Qdrant/ChromaDB/SQLite: one file changes, nothing else breaks
-- `delete()` is the Janitor's scythe — sole writer for memory pruning in Phase 6
+- L0: Identity (~50 tokens) — always loaded
+- L1: Critical facts (~120 tokens, AAAK) — always loaded
+- L2: Room recall — on demand when topic surfaces
+- L3: Deep search — semantic query across all closets
 
-**Async-first design** (per [[review-gemini-review3]]): all methods return `Promise<>`. If MemPalace is ever swapped for a cloud vector DB, the Phase 3 RTT classifier accounts for retrieval latency automatically.
+Total wake-up cost: ~600-900 tokens for full world context (confirmed by independent benchmark — see [[review-mempalace-issues]]). See [[concept-token-economics]].
 
-## Used By
-[[segment-memory]]
+## Operations
+
+- **Ingest**: source → read → extract → update wiki pages → update index → log. Single source may touch 10-15 pages.
+- **Query**: read index → find relevant pages → synthesize. Good answers filed back as new pages.
+- **Lint**: [[segment-janitor]] runs periodic health checks — contradictions, stale claims, orphans, missing cross-references.
+- **Atomize**: clone outputs broken into atomic Zettelkasten notes, rewritten in user voice (via [[concept-soul-md]]), interlinked, filed.
+
+## Local-First
+
+[[tool-bitnet]] 2B model on CPU powers embedding and retrieval without API costs. Full memory system runs offline.
+
+## Interfaces
+
+- ← [[segment-brain]]: requests context before planning
+- ← [[segment-user-agent]]: writes observation logs
+- ← [[segment-clones]]: read-only mission context
+- ← [[segment-janitor]]: prune commands, integrity audits
+- ← [[segment-forge]]: reads all data for pattern analysis, writes improvement findings
 </file>
 
 <file path="templates/code-clone-TASK.md">
@@ -7633,6 +7659,49 @@ The Keychain Agent should be implemented as an MCP server rather than a CLI tool
 [[segment-user-agent]] (credential vault and security)
 </file>
 
+<file path="wiki/tools/tool-mempalace.md">
+# MemPalace
+
+Local-first AI memory system. Palace structure: wings (per person/project), halls (memory types: facts, events, discoveries, preferences, advice), rooms (specific topics), closets ([[concept-aaak-compression|AAAK compressed]]), drawers (verbatim transcripts).
+
+ChromaDB for semantic search (96.6% LongMemEval R@5 in raw mode — this is ChromaDB's `all-MiniLM-L6-v2` score, not a palace-structure score). AAAK mode: 84.2% (−12.4pp), rooms mode: 89.4% (−7.2pp). Both palace-specific modes **regress from raw**. MCP server with 20 tools. Auto-save hooks for Claude Code (catches context before compaction). Specialist agents with diaries map to [[segment-clones]] with persistent skill memory.
+
+> ⚠️ **Benchmark clarification:** The 96.6% figure measures ChromaDB embeddings in raw pass-through mode. Palace structural features (wings, rooms, halls) are metadata filtering — they narrow search scope but don't improve the underlying embedding quality.
+
+> ⚠️ **KG limitations:** The SQLite knowledge graph uses slugified names with no entity resolution beyond exact matching. "Planet Zabave d.o.o." and "PZ d.o.o." are unrelated entities in the KG. Contradiction detection is not implemented — conflicting facts accumulate silently. For entity relationships, use wiki pages + explicit wikilinks instead.
+
+> Source: [[review-mempalace-issues]] (independent code review by lhl, independently reproduced by gizmax)
+
+`pip install mempalace`. Python 3.9+, chromadb, pyyaml. Zero API calls needed. github.com/milla-jovovich/mempalace. MIT license.
+
+## MemoryStore Interface — Phase 1 Deliverable
+
+> Code: `core/memory_store/interface.ts` + `core/memory_store/mempalace_adapter.ts`
+> Status: V1 done — MemPalaceAdapter implements MemoryStore
+
+Nothing outside `core/memory_store/` calls MemPalace directly. The Brain calls `await memory.readContext('L0_WAKE')` — it never knows what backend is running.
+
+```typescript
+interface MemoryStore {
+  connect(): Promise<void>;
+  write(content, metadata): Promise<string>;       // INGEST
+  readContext(tier, query?): Promise<string>;      // RETRIEVE — L0/L1/L2/L3 tiers
+  search(query, limit?): Promise<[...]>;           // SEARCH — semantic similarity
+  delete(memoryId): Promise<boolean>;              // PRUNE — Janitor only
+}
+```
+
+**Architecture wins:**
+- Brain calls `readContext('L0_WAKE')` — budget ~600-900 tokens (independently benchmarked wake-up cost), AAAK logic is inside the adapter
+- Swap MemPalace for Qdrant/ChromaDB/SQLite: one file changes, nothing else breaks
+- `delete()` is the Janitor's scythe — sole writer for memory pruning in Phase 6
+
+**Async-first design** (per [[review-gemini-review3]]): all methods return `Promise<>`. If MemPalace is ever swapped for a cloud vector DB, the Phase 3 RTT classifier accounts for retrieval latency automatically.
+
+## Used By
+[[segment-memory]]
+</file>
+
 <file path="wiki/concepts/concept-git-worktrees.md">
 # Git Worktrees
 
@@ -7685,76 +7754,6 @@ This is a deployment configuration requirement, not a design change. See [[tool-
 The Brain cannot create a worktree and immediately launch a Node.js or Python clone. The correct runtime environment must be bootstrapped first (`npm install`, `pip install`, `go mod download`). Without this, clones fail immediately on dependency errors.
 
 **Every Mission Brief must include a bootstrap block** specifying the setup commands before the clone begins work. See [[concept-mission-briefs]].
-</file>
-
-<file path="wiki/concepts/concept-token-economics.md">
-# Token Economics
-
-> How tokens are budgeted across the seven segments.
-
-## Model Tiers
-
-| Tier | Model | Used By |
-|------|-------|---------|
-| Cloud premium | Claude/Opus or Claude/Sonnet | [[segment-brain]], critical [[segment-clones]] |
-| GPU local | Nemotron on RTX 3090 | Specialized clones, sensitive data |
-| CPU local | [[tool-bitnet]] 2B | Routine clones, [[segment-user-agent]], [[segment-janitor]], [[segment-forge]] monitoring |
-
-## Key Principle
-
-Expensive models for judgment, free models for grunt work. Brain gets the best. Routine clones and monitoring run for free on BitNet. User Agent never resets because it runs on a tiny always-on local model consuming only summaries via [[concept-summary-pipeline]].
-
-Wake-up cost for full world context: **~600-900 tokens** via [[concept-aaak-compression]] (independently benchmarked — see [[review-mempalace-issues]]; original 170-token claim was incorrect).
-
-## ⚠️ RTT Latency: Simple Task Problem
-
-> Flagged by: [[review-gemini-review1]]
-
-The full 7-segment pipeline (User Agent → Brain → Memory → Clone → Janitor → Bridge → Forge) is designed for complex tasks. Running it for simple requests (status check, single-fact query, quick lookup) burns tokens and adds latency for no gain.
-
-**Required: tiered routing at the User Agent layer**
-
-| Tier | Trigger | Path | Latency |
-|------|---------|------|---------|
-| Direct | Simple query, no execution needed | User Agent → response | < 1s |
-| Brain-only | Planned task, no clone needed | User Agent → Brain → response | 2-5s |
-| Full pipeline | Multi-step, requires execution | All 7 segments | 10-60s+ |
-
-Complexity classifier runs at User Agent on [[tool-bitnet]] (zero cost). Routes before the Brain is even woken. See [[segment-user-agent]], [[segment-brain]].
-
-## Model Routing Matrix (from Forge V0.1)
-
-> See [[plan-forge-v01-benchmarking]] for how this is built empirically.
-
-The Brain routes tasks using a data-driven matrix, not assumptions. Populated by the Forge V0.1 benchmarking cascade. Template until benchmarks run:
-
-| Task Type | Route To | Notes |
-|-----------|----------|-------|
-| Text summary / classification | Haiku | Benchmark to confirm |
-| Local file parse / formatting | Ollama local | Free, hardware-limited |
-| Code — feature development | Sonnet | Haiku often fails unit tests |
-| Complex architecture / planning | Sonnet | Opus only marginal gain |
-| Deep synthesis / ambiguous brief | Opus | Sonnet insufficient |
-| QA / linting / formatting | BitNet 2B | Confirmed floor task |
-
-**Opus reality check (from Gemini):** Sonnet often matches or beats Opus for coding, tool-calling, and structured output. Reserve Opus for deep logical synthesis, creative writing, and highly ambiguous planning. Verify empirically via V0.1 cascade.
-
-## Code Mode — 98.7% Token Reduction
-
-> Source: [[review-pdf-agentic-ecosystem]] | Anthropic engineering blog
-
-Traditional tool calling loads every tool's full JSON schema into context upfront. With many tools this overwhelms the window. **Code Mode** (Code Execution with MCP) treats MCP servers as code APIs — the agent writes small code snippets to interact with tools:
-
-| Approach | Tokens for same task | Ratio |
-|----------|---------------------|-------|
-| Traditional (all schemas loaded) | 150,000 | 1× |
-| Code Mode (API def + selected tools only) | 2,000 | **75×** cheaper |
-
-**Rule for this architecture:** [[segment-brain]] interacts with MCP servers via Code Mode by default. Never load full tool schemas into context unless a specific call requires it. See [[tool-mcp-protocol]].
-
-## Model Split (Gemini recommendation)
-
-Brain = cloud API only. Everything else (Clones, Janitor, Forge monitoring, User Agent) = local wherever possible. This collapses operational cost to near zero, turning multi-agent overhead into a hardware constraint rather than a financial one.
 </file>
 
 <file path="wiki/decisions/plan-implementation-v4.md">
@@ -8000,6 +7999,76 @@ Phase 7: Forge (shadow benchmarking + self-improvement)
 *See also: [[review-architecture-audit]], [[review-gemini-review1]], [[decision-six-segments]], [[decision-brain-never-executes]], [[decision-forge-independence]]*
 </file>
 
+<file path="wiki/concepts/concept-token-economics.md">
+# Token Economics
+
+> How tokens are budgeted across the seven segments.
+
+## Model Tiers
+
+| Tier | Model | Used By |
+|------|-------|---------|
+| Cloud premium | Claude/Opus or Claude/Sonnet | [[segment-brain]], critical [[segment-clones]] |
+| GPU local | Nemotron on RTX 3090 | Specialized clones, sensitive data |
+| CPU local | [[tool-bitnet]] 2B | Routine clones, [[segment-user-agent]], [[segment-janitor]], [[segment-forge]] monitoring |
+
+## Key Principle
+
+Expensive models for judgment, free models for grunt work. Brain gets the best. Routine clones and monitoring run for free on BitNet. User Agent never resets because it runs on a tiny always-on local model consuming only summaries via [[concept-summary-pipeline]].
+
+Wake-up cost for full world context: **~600-900 tokens** via [[concept-aaak-compression]] (independently benchmarked — see [[review-mempalace-issues]]; original 170-token claim was incorrect).
+
+## ⚠️ RTT Latency: Simple Task Problem
+
+> Flagged by: [[review-gemini-review1]]
+
+The full 7-segment pipeline (User Agent → Brain → Memory → Clone → Janitor → Bridge → Forge) is designed for complex tasks. Running it for simple requests (status check, single-fact query, quick lookup) burns tokens and adds latency for no gain.
+
+**Required: tiered routing at the User Agent layer**
+
+| Tier | Trigger | Path | Latency |
+|------|---------|------|---------|
+| Direct | Simple query, no execution needed | User Agent → response | < 1s |
+| Brain-only | Planned task, no clone needed | User Agent → Brain → response | 2-5s |
+| Full pipeline | Multi-step, requires execution | All 7 segments | 10-60s+ |
+
+Complexity classifier runs at User Agent on [[tool-bitnet]] (zero cost). Routes before the Brain is even woken. See [[segment-user-agent]], [[segment-brain]].
+
+## Model Routing Matrix (from Forge V0.1)
+
+> See [[plan-forge-v01-benchmarking]] for how this is built empirically.
+
+The Brain routes tasks using a data-driven matrix, not assumptions. Populated by the Forge V0.1 benchmarking cascade. Template until benchmarks run:
+
+| Task Type | Route To | Notes |
+|-----------|----------|-------|
+| Text summary / classification | Haiku | Benchmark to confirm |
+| Local file parse / formatting | Ollama local | Free, hardware-limited |
+| Code — feature development | Sonnet | Haiku often fails unit tests |
+| Complex architecture / planning | Sonnet | Opus only marginal gain |
+| Deep synthesis / ambiguous brief | Opus | Sonnet insufficient |
+| QA / linting / formatting | BitNet 2B | Confirmed floor task |
+
+**Opus reality check (from Gemini):** Sonnet often matches or beats Opus for coding, tool-calling, and structured output. Reserve Opus for deep logical synthesis, creative writing, and highly ambiguous planning. Verify empirically via V0.1 cascade.
+
+## Code Mode — 98.7% Token Reduction
+
+> Source: [[review-pdf-agentic-ecosystem]] | Anthropic engineering blog
+
+Traditional tool calling loads every tool's full JSON schema into context upfront. With many tools this overwhelms the window. **Code Mode** (Code Execution with MCP) treats MCP servers as code APIs — the agent writes small code snippets to interact with tools:
+
+| Approach | Tokens for same task | Ratio |
+|----------|---------------------|-------|
+| Traditional (all schemas loaded) | 150,000 | 1× |
+| Code Mode (API def + selected tools only) | 2,000 | **75×** cheaper |
+
+**Rule for this architecture:** [[segment-brain]] interacts with MCP servers via Code Mode by default. Never load full tool schemas into context unless a specific call requires it. See [[tool-mcp-protocol]].
+
+## Model Split (Gemini recommendation)
+
+Brain = cloud API only. Everything else (Clones, Janitor, Forge monitoring, User Agent) = local wherever possible. This collapses operational cost to near zero, turning multi-agent overhead into a hardware constraint rather than a financial one.
+</file>
+
 <file path="wiki/segments/segment-janitor.md">
 # Janitor — The Muscle
 
@@ -8151,8 +8220,8 @@ File: `janitor/audit-board.md` (persistent, append-only per cycle). Nothing is l
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-08
-> Total pages: 64
-> Sources ingested: 8 repos/articles + 1 architecture session + 12 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge
+> Total pages: 65
+> Sources ingested: 8 repos/articles + 1 architecture session + 13 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge
 
 ## Templates
 
@@ -8236,6 +8305,7 @@ File: `janitor/audit-board.md` (persistent, append-only per cycle). Nothing is l
 - [[review-gemini-review9]] — Final brief audit: 14 findings applied (TS↔Python boundary, deprecated methods, handshake parsing, injection variables, wiki lookup paths, model flag, scope guard, security DoD tests). Brief v4 ready to send.
 - [[review-janitor-audit2]] — Full repo Janitor audit: 17/25 health score (up from 14). 5 RED (R1-R3 in plan, R3 fixed), 11 YELLOW (Y1/Y3/Y7/Y11 fixed, Y2 fixed with new pages), 6 GREEN. Compile-blocking state unchanged.
 - [[review-mempalace-issues]] — MemPalace independent audit: 7 false README claims, AAAK is lossy (84.2%), wake-up 600-900 tokens not 170, contradiction detection nonexistent, 96.6% is raw ChromaDB. Architecture safe (MemoryStore interface). 5 pages corrected.
+- [[review-gemini-code-review68]] — Gemini review of opus-build branch: path traversal fix (path.relative), entropy 8→16. False positive: .env 0o600 already correct. MCP transport known TODO. 57 tests green.
 
 ## Log
 
@@ -8448,6 +8518,10 @@ Source: raw/Janitor-audit2-full-repo.md. Auditor: Janitor (Opus). Scope: full re
 ## [2026-04-08] ingest | mempalace-issues-impact.md — MemPalace independent bug audit
 
 Source: raw/mempalace-issues-impact.md. Researchers: lhl (code review), gizmax (independent benchmark reproduction). Severity: 🟡 MODERATE. Findings: 7 README claims don't match code. (1) AAAK is lossy — LongMemEval drops 96.6%→84.2% (12.4pp), not zero-loss; (2) Wake-up is 600-900 tokens, not 170; (3) Contradiction detection does not exist — KG only blocks exact duplicate triples; (4) 96.6% benchmark is raw ChromaDB (all-MiniLM-L6-v2), not palace structure; (5) "+34% from palace structure" is standard metadata filtering; (6) Halls are metadata strings, not enforced in retrieval ranking; (7) KG uses slugified names with no entity resolution. V4 architecture is safe — MemoryStore interface insulates from backend fragility, swap is one file change. Strategy: use AAAK for speed only, implement contradiction detection at V4 layer (WikiScythe semantic comparison), use wiki+wikilinks for entity relationships, update all 170-token references to 600-900. Pages updated: [[concept-aaak-compression]], [[concept-token-economics]], [[segment-memory]], [[segment-janitor]], [[tool-mempalace]]. Pages created: [[review-mempalace-issues]]. Index updated (64 pages).
+
+## [2026-04-08] review | gemini-code-branch-review68.md — Gemini security review of opus-build branch
+
+Source: raw/gemini-code-branch-review68.md. Reviewer: Gemini. Scope: full opus-build repomix (5 phases, 57 tests). 4 findings: (1) CRITICAL path traversal — startsWith() allows clone-1 to bypass clone-12 sandbox boundary; FIXED with path.relative() in core/keychain/manager.ts:183; (2) HIGH .env permissions — FALSE POSITIVE, Opus already used 0o600 correctly; (3) MEDIUM entropy threshold — filter(v.length > 8) causes false-positive FAILED_REQUIRE_HUMAN on short vault values like DEBUG=true; FIXED to > 16 chars; (4) HIGH MCP transport — all mempalace_adapter.ts methods are stubs; KNOWN TODO from Phase 1 scope, wire StdioClientTransport when MemPalace confirmed running. Commit 3650a3f pushed to opus-build. 14/14 keychain tests pass. Pages created: [[review-gemini-code-review68]]. Index updated (65 pages).
 </file>
 
 </files>
