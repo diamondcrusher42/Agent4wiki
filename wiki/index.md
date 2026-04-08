@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-09
-> Total pages: 109
+> Total pages: 111
 > Sources ingested: 8 repos/articles + 1 architecture session + 14 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
 
 ## Templates
@@ -14,6 +14,8 @@
 - [[forge-benchmarks]] — All benchmarks run: Phase 1 effort routing, Phase 2 context window, planned 2-tier Janitor
 - [[forge-experiments]] — Active experiments, prioritized queue (Q1-Q5), past experiment outcomes
 - [[forge-improvement-log]] — Append-only log of every improvement: proposed, tested, promoted or rejected
+- [[forge-skill-testing]] — Framework for testing Claude Code skill variants with git worktrees. First test: frontend-design for agent-janitor website. Model benchmarks vs skill benchmarks compared.
+- [[skill-eval-scorecard]] — Gemini-refined scorecard: 6 categories × 5 points, AI execution checklist, scoring history, decision gate (≥24/30 promote)
 
 ## Segments
 

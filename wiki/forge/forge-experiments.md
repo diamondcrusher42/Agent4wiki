@@ -20,6 +20,14 @@ None currently running. Opus v9 build just completed. Next: review cycle then po
 **Blocking:** Forge needs to be running (dispatcher active). Currently only tested via manual Claude sessions.
 **See:** [[forge-benchmarks]], [[decision-janitor-tiered-benchmark]]
 
+### Q1.5: Front-end design skill testing — agent-janitor website
+**Priority:** High
+**Trigger:** Jure idea to test skill variants the same way Forge tests model × effort
+**What to run:** 3 skill variants (baseline, aggressive-cta, edu-focus) × same prompt on agent-janitor wiki data. Stack: React + Tailwind + Framer Motion. Target: `docs/index.html`.
+**Scoring:** Gemini-refined scorecard (6 categories × 5 points = 30 max). Promote if ≥ 24/30.
+**See:** [[forge-skill-testing]], [[skill-eval-scorecard]]
+**Blocking:** Need to run worktrees when ready.
+
 ### Q2: runRepomix execFileAsync vs shell interpolation (already fixed, log the result)
 **Status:** Fixed in plan-build-v9. No A/B needed — correctness issue, not performance tradeoff.
 
