@@ -12,7 +12,7 @@ import { CloneRunner } from './lifecycle/runner';
 import { CloneTeardown } from './lifecycle/teardown';
 import { KeychainManager, HandshakeResult } from '../keychain/manager';
 import { Janitor, AuditDirective, AuditResult } from '../janitor/auditor';
-import { DispatchDecision } from '../brain/dispatcher';
+import { DispatchDecision } from '../brain/router';
 import { PromptBuilder } from '../brain/prompt_builder';
 import { MissionBrief } from '../brain/planner';
 

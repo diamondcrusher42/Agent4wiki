@@ -2,17 +2,13 @@
 // Phase 2 deliverable — Keychain Agent MVP (JIT Scoped Injection) V2
 // Changelog: spawn-based injection (no file on disk), try/finally lifecycle,
 //            Kids Bot maxTokensPerSession, patterns.yaml leak scanner note
+//
+// V2 lifecycle: KeychainManager provides provisionEnvironment() and
+// revokeEnvironment() as primitives. CloneWorker orchestrates them.
+// executeCloneMission() and launchClone() (V1 pattern) have been removed.
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawn } from 'child_process';
-
-export interface MissionBrief {
-  task: string;
-  requiredKeys: string[];
-  allowedEndpoints: string[];
-  worktreePath: string;
-}
 
 export interface HandshakeResult {
   status: 'COMPLETED' | 'FAILED_REQUIRE_HUMAN' | 'FAILED_RETRY' | 'BLOCKED_IMPOSSIBLE';
@@ -34,35 +30,11 @@ export class KeychainManager {
   }
 
   /**
-   * FULL CLONE LIFECYCLE — try/finally guarantees revocation even if clone crashes.
-   * This is the CloneLifecycle orchestrator described in Opus review 2.
-   */
-  async executeCloneMission(task: MissionBrief): Promise<HandshakeResult> {
-    const worktree = task.worktreePath;
-
-    // 1. Provision — credentials exist only in process memory, never on disk
-    const scopedEnv = this.buildScopedEnv(task.requiredKeys);
-
-    try {
-      // 2. Launch clone with env injected into subprocess (no .env file written)
-      const result = await this.launchClone(worktree, task, scopedEnv);
-      return result;
-    } finally {
-      // 3. Revoke + scan — ALWAYS runs, even if clone crashes
-      const clean = this.scanForLeaks(worktree);
-      if (!clean) {
-        console.error(`[FATAL] Credential leak detected in ${worktree}. Locking down.`);
-        // Janitor must be notified to BLOCK the commit
-      }
-    }
-  }
-
-  /**
    * BUILD SCOPED ENV: Creates a minimal env record with ONLY the requested keys.
    * Explicit deny: any key not in requiredKeys is absent.
    * Credentials stay in process memory — never written to disk.
    */
-  private buildScopedEnv(requiredKeys: string[]): Record<string, string> {
+  public buildScopedEnv(requiredKeys: string[]): Record<string, string> {
     const scopedEnv: Record<string, string> = {};
 
     for (const key of requiredKeys) {
@@ -77,37 +49,82 @@ export class KeychainManager {
   }
 
   /**
-   * LAUNCH CLONE: Spawns the Claude Code process with scoped env injected directly.
-   * Credentials exist only in the spawned process's memory — no file on disk.
-   * This eliminates the .env file attack surface entirely.
+   * PROVISION: Write a temporary .env file into the worktree for Python/shell clones.
+   * For TypeScript clones, use buildScopedEnv() + process.env injection instead.
+   * File is deleted by revokeEnvironment() in the finally block.
    */
-  private async launchClone(
-    worktreePath: string,
-    task: MissionBrief,
-    scopedEnv: Record<string, string>
-  ): Promise<HandshakeResult> {
-    return new Promise((resolve, reject) => {
-      const child = spawn('claude', ['code'], {
-        cwd: worktreePath,
-        env: { ...process.env, ...scopedEnv } // credentials only in process memory
-      });
+  public async provisionEnvironment(worktreePath: string, requiredKeys: string[]): Promise<void> {
+    const resolved = path.resolve(worktreePath);
+    const scopedEnv = this.buildScopedEnv(requiredKeys);
+    const envPath = path.join(resolved, '.env');
+    const envContent = Object.entries(scopedEnv)
+      .map(([k, v]) => `${k}=${v}`)
+      .join('\n');
+    await fs.promises.writeFile(envPath, envContent, { mode: 0o600 });
+  }
 
-      let output = '';
-      child.stdout.on('data', (data) => { output += data.toString(); });
-      child.on('close', (code) => {
-        try {
-          // Parse JSON handshake from clone output
-          const jsonMatch = output.match(/\{[\s\S]*"status"[\s\S]*\}/);
-          if (jsonMatch) {
-            resolve(JSON.parse(jsonMatch[0]) as HandshakeResult);
-          } else {
-            reject(new Error('Clone produced no parseable JSON handshake'));
-          }
-        } catch (e) {
-          reject(e);
+  /**
+   * REVOKE: Delete the .env file from the worktree. Always call in finally block.
+   * Runs scanForLeaks() — if leak detected, logs FATAL and returns false.
+   * Caller (CloneWorker) must treat false return as Janitor BLOCK.
+   */
+  public async revokeEnvironment(worktreePath: string): Promise<boolean> {
+    const resolved = path.resolve(worktreePath);
+    const envPath = path.join(resolved, '.env');
+    try {
+      await fs.promises.unlink(envPath);
+    } catch {
+      // File may not exist if provisionEnvironment never ran — not an error
+    }
+    const clean = this.scanForLeaks(resolved);
+    if (!clean) {
+      console.error(`[KEYCHAIN FATAL] Credential leak detected in ${resolved}`);
+    }
+    return clean;
+  }
+
+  /**
+   * GET SCOPE KEYS: Returns the list of credential keys required for a given skill.
+   * Reads from core/keychain/config/scopes.yaml.
+   */
+  public getScopeKeys(skill: string): string[] {
+    const scopesPath = path.join(__dirname, 'config', 'scopes.yaml');
+    try {
+      const raw = fs.readFileSync(scopesPath, 'utf-8');
+      // Simple YAML parser for scopes.yaml structure:
+      //   skill_name:
+      //     keys:
+      //       - KEY_NAME
+      const keys: string[] = [];
+      const lines = raw.split('\n');
+      let inSkill = false;
+      let inKeys = false;
+      for (const line of lines) {
+        // Top-level skill (no leading whitespace, ends with colon)
+        if (/^\S/.test(line) && line.trim().endsWith(':')) {
+          inSkill = line.trim().replace(':', '') === skill;
+          inKeys = false;
+          continue;
         }
-      });
-    });
+        if (!inSkill) continue;
+        if (/^\s+keys:\s*$/.test(line)) {
+          inKeys = true;
+          continue;
+        }
+        // Another sub-key at the same indent level — stop collecting keys
+        if (inKeys && /^\s+\w+:/.test(line) && !line.trim().startsWith('-')) {
+          inKeys = false;
+          continue;
+        }
+        if (inKeys && line.trim().startsWith('- ')) {
+          keys.push(line.trim().replace(/^- /, ''));
+        }
+      }
+      return keys;
+    } catch {
+      console.warn(`[KEYCHAIN] Could not read scopes.yaml — returning empty scope for skill: ${skill}`);
+      return [];
+    }
   }
 
   /**

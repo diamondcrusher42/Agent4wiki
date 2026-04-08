@@ -1,4 +1,4 @@
-// core/clones/spawner.ts
+// core/clones/lifecycle/spawner.ts
 // Phase 5 deliverable — Clone lifecycle management
 //
 // Creates git worktrees for clone execution, triggers setup.sh,
@@ -40,14 +40,4 @@ export class CloneSpawner {
     throw new Error('CloneSpawner.createWorktree() not yet implemented — Phase 5 in progress');
   }
 
-  /**
-   * TEARDOWN WORKTREE — called by Janitor after NOTE or BLOCK resolution.
-   * Removes the worktree directory and deletes the branch.
-   */
-  public async teardownWorktree(handle: WorktreeHandle): Promise<void> {
-    // TODO: git worktree remove <path> --force
-    // TODO: git branch -d <branch>
-    // TODO: remove from registry
-    throw new Error('CloneSpawner.teardownWorktree() not yet implemented');
-  }
 }
