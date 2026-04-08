@@ -8,6 +8,62 @@ A Karpathy-pattern wiki mapping the full architecture of a multi-machine AI agen
 
 ---
 
+## Why This Exists
+
+Most AI agent frameworks give you agents that can *run*. What they can't give you is an agent that is *yours* — one that knows your voice, guards your credentials, learns from every session, improves its own tools, and reaches you on your phone when something finishes at 2am.
+
+**The specific problems that made existing tools unusable:**
+- They reset every session — an agent with no memory is just an expensive CLI
+- They can't keep secrets — credentials leak into logs, context windows, config files
+- They're single-machine — a coding task and a browser task need different hardware
+- Their output is invisible — console output doesn't reach your phone
+- They don't improve — the 100th task runs the same as the 1st
+
+**The design answers each problem directly:**
+- Memory segment (The Vault) — compounding knowledge, AAAK compression, zero runtime tokens
+- Keychain — JIT injection, credentials exist in process memory only, confirmed destroyed after
+- Distributed fleet — any machine with git + Python + claude CLI is an execution node
+- Bridge — 5-channel fallback (Telegram → Email → Discord → Slack → SMS), never silent
+- Forge — shadow benchmarks, A/B testing, 5-win promotion, self-improving templates
+
+Full origin story and design philosophy: [wiki/decisions/decision-system-philosophy.md](wiki/decisions/decision-system-philosophy.md)
+
+---
+
+## How It Was Built
+
+**Knowledge first, code second.** Before a line of code was written, 9 external reviews were commissioned (Gemini × 4, Claude Opus × 5) to stress-test the architecture. Every finding is compiled into the wiki. The next session reads a 5-minute summary instead of re-discovering the same issues.
+
+**Key tools and technologies:**
+
+| Layer | Technology |
+|-------|-----------|
+| Core orchestration | TypeScript + Node.js (async I/O, MCP SDK native) |
+| Clone execution | Python 3.9+ (AI/ML ecosystem, subprocess control) |
+| Memory | MemPalace MCP server (96.6% LongMemEval, AAAK compression) |
+| Context packing | Repomix (70% token reduction) |
+| Execution isolation | git worktrees (parallel, sandboxed) |
+| Credentials | JIT injection — process memory only, try/finally lifecycle |
+| Routing | ComplexityClassifier (regex — zero latency, zero cost) |
+| Bridge | Telegram primary + Email/Discord/Slack/SMS fallbacks |
+| Knowledge | This wiki (Karpathy LLM Wiki pattern) |
+
+---
+
+## What's Next
+
+| Stage | What |
+|-------|------|
+| **This week** | Phase 0: fix 8 compile errors. Phase 1-2: dispatcher paths + credential MVP |
+| **First loop** | `triggerFullPipeline()` auto-writes to inbox → first end-to-end autonomous run |
+| **Fleet** | Bootstrap second node, `target_node` routing, fleet health droid |
+| **Forge** | Shadow runner → evaluator → ratchet → self-improving templates |
+| **WikiScythe** | Automated wiki maintenance — prune stale, flag contradictions |
+
+Full build plan with exact code specs + unit tests: [wiki/decisions/plan-build-v1.md](wiki/decisions/plan-build-v1.md)
+
+---
+
 ## Architecture in one line
 
 > Seven specialized segments. One brain that never executes. Unlimited parallel clones across any machine. A janitor that doubts everything. A forge that makes everything better. A bridge that keeps the human in the loop.
@@ -302,8 +358,10 @@ User message (Telegram)
 | **Setup** | [Node Setup Guide](wiki/concepts/concept-node-setup.md) · [Distributed Clones](wiki/concepts/concept-distributed-clones.md) |
 | **Audit** | [Code Audit 1](wiki/decisions/review-code-audit-1.md) — 6 critical bugs, fix order |
 | **Decisions** | [Seven Segments](wiki/decisions/decision-seven-segments.md) · [Brain Never Executes](wiki/decisions/decision-brain-never-executes.md) · [TypeScript + Python](wiki/decisions/decision-typescript-python.md) · [Directory Scaffold](wiki/decisions/decision-directory-scaffold.md) |
-| **All pages** | [wiki/index.md](wiki/index.md) — 52 pages total |
+| **Why / How** | [decision-system-philosophy.md](wiki/decisions/decision-system-philosophy.md) — origin story, design decisions, roadmap |
+| **Build plan** | [plan-build-v1.md](wiki/decisions/plan-build-v1.md) — Phase 0-4 with exact code + unit tests |
+| **All pages** | [wiki/index.md](wiki/index.md) — 56 pages total |
 
 ---
 
-*52 pages · last updated 2026-04-07 · sources: 8 repos/articles + 1 architecture session + 9 external reviews + 2 original architecture docs*
+*56 pages · last updated 2026-04-08 · sources: 8 repos/articles + 1 architecture session + 9 external reviews + 2 build plans + 1 research PDF + 1 multi-channel bridge*
