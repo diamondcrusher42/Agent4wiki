@@ -34,11 +34,11 @@ export class PromptBuilder {
     const wikiContext = await this.loadWikiContext(brief.wikiContext);
 
     return template
-      .replace('{INJECT_SOUL_HERE}', soul)
-      .replace('{INJECT_ALLOWED_PATHS_HERE}', brief.allowedPaths.join('\n'))
-      .replace('{INJECT_ALLOWED_ENDPOINTS_HERE}', brief.allowedEndpoints.join('\n'))
-      .replace('{INJECT_WIKI_CONTEXT_HERE}', wikiContext)
-      .replace('{INJECT_TASK_HERE}', brief.objective);
+      .replaceAll('{INJECT_SOUL_HERE}', soul)
+      .replaceAll('{INJECT_ALLOWED_PATHS_HERE}', brief.allowedPaths.join('\n'))
+      .replaceAll('{INJECT_ALLOWED_ENDPOINTS_HERE}', brief.allowedEndpoints.join('\n'))
+      .replaceAll('{INJECT_WIKI_CONTEXT_HERE}', wikiContext)
+      .replaceAll('{INJECT_TASK_HERE}', brief.objective);
   }
 
   /**
@@ -68,14 +68,32 @@ export class PromptBuilder {
   private async loadWikiContext(pageNames: string[]): Promise<string> {
     const sections: string[] = [];
     for (const pageName of pageNames) {
-      const pagePath = path.join(WIKI_PATH, `${pageName}.md`);
+      const resolved = this.resolveWikiPage(pageName);
+      if (!resolved) {
+        console.warn(`[PROMPT_BUILDER] Wiki page not found: ${pageName}`);
+        continue;
+      }
       try {
-        const content = await fs.promises.readFile(pagePath, 'utf-8');
+        const content = await fs.promises.readFile(resolved, 'utf-8');
         sections.push(`## ${pageName}\n${content.slice(0, 800)}`); // ~200 tokens each
       } catch {
-        console.warn(`[PROMPT_BUILDER] Wiki page not found: ${pageName}`);
+        console.warn(`[PROMPT_BUILDER] Could not read wiki page: ${pageName}`);
       }
     }
     return sections.join('\n\n---\n\n');
+  }
+
+  /**
+   * Resolve a wiki page name to its actual file path.
+   * Pages live in subdirectories (segments/, concepts/, tools/, entities/, decisions/).
+   */
+  private resolveWikiPage(pageName: string): string | null {
+    for (const subdir of ['segments', 'concepts', 'tools', 'entities', 'decisions', '']) {
+      const p = subdir
+        ? path.join(WIKI_PATH, subdir, `${pageName}.md`)
+        : path.join(WIKI_PATH, `${pageName}.md`);
+      if (fs.existsSync(p)) return p;
+    }
+    return null;
   }
 }
