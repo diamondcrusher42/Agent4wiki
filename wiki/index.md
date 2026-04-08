@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-08
-> Total pages: 93
+> Total pages: 95
 > Sources ingested: 8 repos/articles + 1 architecture session + 14 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
 
 ## Templates
@@ -110,6 +110,8 @@
 - [[plan-build-v6]] — Phase A (registry fix, dispatcher validation, OOM guard) + Phase B (scythe sanitization, --ignore-scripts) + Phase C (planner retry, soul TTL, routeToBrain single call). Target 140→156 tests.
 - [[build-state-2026-04-08-v6]] — Plan-build-v6 complete: 140→157 tests. Registry fix, OOM guard, dispatcher injection, scythe array exec, soul TTL, routeToBrain single call. opus-build @ d9ac4ba.
 - [[review-opus-review93]] — Opus post-v6: Top 5: vault password leak via Python path, dual lifecycle paths, confidence not gating execution, scanForLeaks git diff blind spot, routeToBrain=executeDirect (needs differentiation). Also: spawner setup.sh gap, tests_passed undefined bug.
+- [[review-gemini-review93]] — Gemini post-v6: 1MB scanner loophole (pad to 1.1MB to bypass), self-reporting token metrics bypass, brittle regex fallback for nested JSON, env deny-list vs allowlist, git worktree orphan branches.
+- [[plan-build-v7]] — Phase A (Python vault leak, git status scan, tests_passed fix, large file flag) + Phase B (env allowlist, spawner setup.sh) + Phase C (MAX_RETRIES config, BRAIN_ONLY wiki context, confidence gate). Target 157→175 tests.
 - [[review-skills-playbook]] — V4 Skills Playbook: 28-skill ceiling, 4-gate triage, 5-layer security (Docker sandbox, Nemotron LLM-on-LLM, Keychain scoping), Quarantine→Probation→Production pipeline, Forge owns lifecycle.
 - [[code-suggestions-skills]] — 7 concrete code changes: required_skills task field, provisionSkills() spawner, skills/ library, Docker sandbox flag, per-skill scopes.yaml, GitHub Actions gate, Janitor skill audit. Ordered by phase.
 - [[review-opus-review89]] — Opus 5-perspective review (post Phase 5-7): Security 4, Reliability 5, Tests 6, Architecture 7, Prod 3. Top 3 beyond v3: unify TS/Python Janitor, 2-pass classifier, Forge cost cap. 6 more candidates for plan-build-v4.
