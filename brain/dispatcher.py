@@ -43,20 +43,26 @@ from datetime import datetime, timezone
 from typing import Optional
 from dataclasses import dataclass, field, asdict
 
+# Bridge import — brain/bridge.py is in the same directory
+sys.path.insert(0, str(Path(__file__).parent))
+from bridge import get_bridge, BridgeError
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-BASE_DIR = Path(os.environ.get("AGENT_BASE_DIR", Path.home() / "agent-v4"))
-INBOX = BASE_DIR / "brain" / "inbox"
-ACTIVE = BASE_DIR / "brain" / "active"
+BASE_DIR = Path(os.environ.get("AGENT_BASE_DIR", Path(__file__).parent.parent.resolve()))
+INBOX     = BASE_DIR / "brain" / "inbox"
+ACTIVE    = BASE_DIR / "brain" / "active"
 COMPLETED = BASE_DIR / "brain" / "completed"
-FAILED = BASE_DIR / "brain" / "failed"
-TEMPLATES = BASE_DIR / "brain" / "templates"
+FAILED    = BASE_DIR / "brain" / "failed"
+TEMPLATES = BASE_DIR / "templates"           # canonical until consolidated to core/clones/templates/
 WIKI_INDEX = BASE_DIR / "wiki" / "index.md"
-USER_STATE = BASE_DIR / "user-agent" / "state" / "state.json"
-SOUL_MD = BASE_DIR / "user-agent" / "profile" / "soul.md"
+USER_STATE = BASE_DIR / "state" / "user_agent" / "state.json"
+SOUL_MD   = BASE_DIR / "wiki" / "Soul.md"
 EVENT_LOG = BASE_DIR / "events" / "dispatcher.jsonl"
+
+MAX_RETRIES = 3  # Janitor circuit breaker
 
 POLL_INTERVAL = 2  # seconds between inbox checks in watch mode
 MAX_CONCURRENT = 3  # max simultaneous clone sessions
@@ -391,6 +397,45 @@ def log_event(event_type: str, data: dict):
     }
     with open(EVENT_LOG, "a") as f:
         f.write(json.dumps(entry) + "\n")
+
+
+def notify_human(task, directive: str, handshake: dict):
+    """
+    Alert the user through the Bridge. Uses broadcast() for BLOCK/security,
+    send() (fallback cascade) for completions and suggestions.
+    """
+    bridge = get_bridge()
+    ts = datetime.now(timezone.utc).strftime("%H:%M UTC")
+
+    if directive == "NOTE":
+        msg = f"[{ts}] ✓ Task {task.id} complete ({task.skill})\nObjective: {task.objective[:120]}"
+        bridge.send(msg)
+
+    elif directive == "SUGGEST":
+        notes = handshake.get("janitor_notes", "")[:200]
+        msg = f"[{ts}] ↻ Task {task.id} re-queued — Janitor feedback:\n{notes}"
+        bridge.send(msg)
+
+    elif directive == "BLOCK":
+        notes = handshake.get("janitor_notes", "")[:200]
+        msg = (
+            f"[{ts}] 🚫 Task {task.id} BLOCKED — human intervention required\n"
+            f"Skill: {task.skill} | Source: {task.source}\n"
+            f"Objective: {task.objective[:120]}\n"
+            f"Reason: {notes}"
+        )
+        # Broadcast BLOCK to all channels — this is urgent
+        results = bridge.broadcast(msg, subject=f"Agent V4 — Task BLOCKED: {task.id}")
+        delivered = [ch for ch, r in results.items() if r == "ok"]
+        log.warning(f"[BRIDGE] BLOCK alert delivered via: {', '.join(delivered) or 'NONE'}")
+
+    elif directive == "SECURITY":
+        msg = (
+            f"[{ts}] 🔴 SECURITY ALERT — Task {task.id}\n"
+            f"Credential leak or security violation detected.\n"
+            f"Details: {handshake.get('janitor_notes', 'see logs')[:200]}"
+        )
+        bridge.broadcast(msg, subject=f"Agent V4 — SECURITY ALERT: {task.id}")
 
 
 # ---------------------------------------------------------------------------

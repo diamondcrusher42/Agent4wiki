@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-08
 > Total pages: 55
-> Sources ingested: 8 repos/articles + 1 architecture session + 9 external reviews + 2 implementation plans + 1 research PDF + 1 template
+> Sources ingested: 8 repos/articles + 1 architecture session + 9 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge
 
 ## Templates
 

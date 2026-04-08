@@ -28,12 +28,54 @@ See [[decision-seven-segments]].
 
 ## Channels
 
-| Channel | Status | Notes |
-|---------|--------|-------|
-| Telegram | ✅ Primary | Admin bot + company bots + kids coding bot |
-| Slack | ⬜ Planned | Multi-channel skill |
-| Discord | ⬜ Planned | Multi-channel skill |
-| Webhooks | ⬜ Planned | Generic HTTP delivery for custom integrations |
+| Channel | Status | Priority | Use Case |
+|---------|--------|----------|----------|
+| Telegram | ✅ Live | 1 — Primary | All output. Session pings. Task results. Approvals. |
+| Email | ✅ Live | 2 — Fallback 1 | When Telegram fails (529, down). AgentMail → PERSONAL_EMAIL. |
+| Discord | ✅ Live | 3 — Fallback 2 | Parallel with Telegram for BLOCK/security alerts. Webhook. |
+| Slack | ✅ Live | 4 — Fallback 3 | Work-context notifications. Webhook. |
+| SMS | ✅ Live | 5 — Last resort | Critical-only (costs money). Twilio. 160 char limit. |
+
+## Bridge API (`brain/bridge.py`)
+
+```python
+from brain.bridge import get_bridge
+
+bridge = get_bridge()
+
+# Standard output — tries Telegram, falls back through chain on failure
+bridge.send("Clone task-001 completed.")
+
+# Broadcast to ALL channels simultaneously — use for BLOCK, security alerts
+bridge.broadcast("SECURITY: credential leak in task-007")
+
+# Telegram-only ping — session start/stop, does not cascade
+bridge.ping("Session started. Queue: 3 msgs.")
+```
+
+### Fallback cascade
+
+```
+Telegram → Email (AgentMail) → Discord → Slack → SMS
+```
+
+- `send()`: tries each channel in order, stops at first success
+- `broadcast()`: fires all channels in parallel, returns `{channel: "ok"|"failed"}` dict
+- BLOCK directive always uses `broadcast()` — it fires Telegram + Email + Discord + Slack + SMS simultaneously
+
+### Required env vars (`.env.example` for all)
+
+```
+TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID          # primary
+AGENTMAIL_API_KEY, AGENTMAIL_INBOX_ID,
+PERSONAL_EMAIL                                 # email fallback
+DISCORD_WEBHOOK_URL                            # discord fallback
+SLACK_WEBHOOK_URL                              # slack fallback
+TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
+TWILIO_FROM_NUMBER, TWILIO_TO_NUMBER           # SMS last resort
+```
+
+Missing vars: channel is skipped gracefully (warning logged, no crash).
 
 ---
 
@@ -162,16 +204,20 @@ Session end / before /new:
 
 ---
 
-## Multi-Channel Roadmap
+## Notification Routing by Event Type
 
-| Feature | Channel | Notes |
-|---------|---------|-------|
-| Admin commands | Telegram | Current — primary interface |
-| Task notifications | Telegram / Slack | Route based on urgency |
-| Clone completion alerts | Telegram | Auto-sent when clone signals COMPLETED |
-| Janitor health reports | Telegram | Weekly digest |
-| Forge promotion alerts | Telegram | When a new version promotes to production |
-| Public-facing bots | Telegram (kids coding) | Isolated, --isolated flag, no admin creds |
+| Event | Channels | Rationale |
+|-------|----------|-----------|
+| Task NOTE (complete) | Telegram → cascade | Normal completion — one channel enough |
+| Task SUGGEST (retry) | Telegram → cascade | Info only — Janitor re-queued automatically |
+| Task BLOCK | ALL channels (broadcast) | Requires human action — must get through |
+| Security alert (leak) | ALL channels (broadcast) | Critical — credentials may be compromised |
+| Session start ping | Telegram only | Routine — no need to flood other channels |
+| Dispatcher crash | Email + Discord | Telegram may be down if watchdog crashed |
+| Clone completion | Telegram → cascade | User wants to know result on phone |
+| Janitor weekly report | Email | Long-form — better suited for email |
+| Forge promotion | Telegram | FYI — a new template version promoted |
+| Kids bot alerts | Telegram (admin bot) | Separate chat_id, never mixes with main vault |
 
 ---
 
