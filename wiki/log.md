@@ -2,6 +2,10 @@
 
 Chronological record of all wiki operations. Append-only.
 
+## [2026-04-09] build | plan-build-v9 complete (Opus 4.6)
+
+198→211 tests (+13). 2 commits. A1: dead code removed (30 lines, janitor_evaluate V1 logic). A2: TOCTOU fd-first symlink fix (openSync→realpathSync→fstatSync→readFileSync on same fd). A3: atomic _claim_task() with os.rename, replaces thread-name tracking. B1: runRepomix execFileAsync array form. B2: ForgeRecord written for ALL directives (not just NOTE). B3: .dispatcher-prompt.md in finally block, cleaned on all paths. TSC clean. Branch: opus-build @ 5ffb5e4.
+
 ## [2026-04-09] decision | Janitor standalone product + v1.0.1 false positive fixes
 
 decision-janitor-standalone: First real scan of claude-agent-template surfaced 4 false positive classes. Fixed: Python indentation for elif/else detection, high_entropy_base64 threshold 40→60, generic_password_assignment skips $VAR refs, exclude_path_patterns for .claude/skills. Result: 61+47 findings → 13+8 findings. Upgrades list + tuning wiki page added to agent-janitor repo.

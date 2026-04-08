@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-09
-> Total pages: 103
+> Total pages: 104
 > Sources ingested: 8 repos/articles + 1 architecture session + 14 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
 
 ## Templates
@@ -122,6 +122,7 @@
 - [[plan-build-v9]] — Stripped to 6 real gaps (Opus confirmed 7 items already done in v8): A1 dead code in janitor_evaluate, A2 TOCTOU atomic fd symlink fix, A3 atomic task rename, B1 runRepomix execFileAsync, B2 ForgeRecord unified policy, B3 prompt file cleanup. Target: 198 → ~212 tests.
 - [[review-opus-review95]] — Opus multi-perspective post-v8 (72% readiness). CRIT-1: dead code janitor_evaluate. CRIT-2: TOCTOU symlink race (openSync→fstatSync→readFileSync). HIGH-5: atomic rename task pickup. HIGH-6: runRepomix shell injection. HIGH-1: ForgeRecord policy asymmetry. 7 of 9 v8 plan items already implemented.
 - [[decision-janitor-standalone]] — Janitor as standalone product (agent-janitor repo). Architecture, credential sharing, v1.0.1 false positive fixes, what it finds vs linters. First real scan learnings.
+- [[build-state-2026-04-09-v9]] — Plan-build-v9 complete: 198→211 tests (+13). A1 dead code, A2 TOCTOU fd, A3 atomic claim, B1 runRepomix, B2 ForgeRecord all verdicts, B3 prompt file finally. opus-build @ 5ffb5e4.
 - [[review-skills-playbook]] — V4 Skills Playbook: 28-skill ceiling, 4-gate triage, 5-layer security (Docker sandbox, Nemotron LLM-on-LLM, Keychain scoping), Quarantine→Probation→Production pipeline, Forge owns lifecycle.
 - [[code-suggestions-skills]] — 7 concrete code changes: required_skills task field, provisionSkills() spawner, skills/ library, Docker sandbox flag, per-skill scopes.yaml, GitHub Actions gate, Janitor skill audit. Ordered by phase.
 - [[review-opus-review89]] — Opus 5-perspective review (post Phase 5-7): Security 4, Reliability 5, Tests 6, Architecture 7, Prod 3. Top 3 beyond v3: unify TS/Python Janitor, 2-pass classifier, Forge cost cap. 6 more candidates for plan-build-v4.
