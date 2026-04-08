@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-08
-> Total pages: 79
+> Total pages: 80
 > Sources ingested: 8 repos/articles + 1 architecture session + 13 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
 
 ## Templates
@@ -92,6 +92,7 @@
 - [[review-opus-extended]] — Opus extended thinking review: 39 findings (4 blockers fixed, 7 total applied). Extended thinking vs Gemini: 10x more findings, caught 4 integration failures Gemini missed. 57/57 tests pass.
 - [[build-state-2026-04-08]] — Full system snapshot: Phases 0-4 done (57 tests), 2 security patches, known TODOs (MCP transport, AES vault, WikiScythe). opus-build branch 6 commits ahead of main.
 - [[build-state-2026-04-08-phase57]] — Phase 5-7 complete: AES vault, MCP transport, WikiScythe, fleet routing, Forge core. 84 tests all green. Commit 2960b4d.
+- [[review-gemini-review88]] — Gemini Phase 5-7 review: 2 critical (stdout JSON parsing, git-as-queue), 3 blind spots (Docker isolation, file locking, orphan watchdog), 3 low-hanging fruits. Priority action order included.
 - [[plan-forge-benchmarking]] — Full benchmark plan: 3 concrete tasks from Agent4wiki codebase, JSONL automation, Phase 1 (effort) + Phase 2 (context window) + Forge integration path.
 - [[benchmark-results]] — Phase 1+2 results. Phase 2 (Forge): all 6 combos 10/10 correctness. Opus medium wins (6k tok, 1.6 min). Haiku medium worst (19.6k tok). Forge scheduling: run at token reset for $0 cost.
 - [[decision-effort-level-routing]] — When to use --effort max vs medium. Max wins on security fixes + precision wiring. Never use high. Routing rules included.
