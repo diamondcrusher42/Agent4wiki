@@ -311,16 +311,16 @@ Agent4wiki/
 ├── forge/                  ← Forge output (forge/events.jsonl gitignored)
 ├── raw/                    ← Immutable source documents (never edit, only append)
 │
-└── wiki/                   ← The Brain's OS (fully committed — 52 pages)
+└── wiki/                   ← The Brain's OS (fully committed — 60 pages)
     ├── CLAUDE.md           ← Wiki schema, wikilink convention, tiering, token budget
     ├── Soul.md             ← Agent identity: voice, values, delegation style
     ├── index.md            ← Master catalog
     ├── log.md              ← Append-only operation record
     ├── segments/           ← 7 segment pages
-    ├── concepts/           ← 15 concept pages (incl. distributed clones, node setup)
+    ├── concepts/           ← 16 concept pages (incl. distributed clones, node setup)
     ├── tools/              ← 8 tool pages
     ├── entities/           ← 2 entity pages
-    └── decisions/          ← 20 decision + review + audit pages
+    └── decisions/          ← 27 decision + review + audit pages
 ```
 
 ---
@@ -363,8 +363,8 @@ User message (Telegram)
 | **Why / How** | [decision-system-philosophy.md](wiki/decisions/decision-system-philosophy.md) — origin story, design decisions, roadmap |
 | **Build plan** | [plan-build-v1.md](wiki/decisions/plan-build-v1.md) — Phase 0-4 with exact code + unit tests |
 | **Opus brief** | [raw/opus-build-brief.md](raw/opus-build-brief.md) — full handoff: 7 segments, decisions, model governance, DoD |
-| **All pages** | [wiki/index.md](wiki/index.md) — 58 pages total |
+| **All pages** | [wiki/index.md](wiki/index.md) — 60 pages total |
 
 ---
 
-*58 pages · last updated 2026-04-08 · sources: 8 repos/articles + 1 architecture session + 9 external reviews + 2 build plans + 1 research PDF + 1 multi-channel bridge*
+*60 pages · last updated 2026-04-08 · sources: 8 repos/articles + 1 architecture session + 10 external reviews + 2 build plans + 1 research PDF + 1 multi-channel bridge*

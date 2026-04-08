@@ -19,8 +19,8 @@ actual_pages=$(find "$WIKI_DIR" -name "*.md" \
   ! -name "index.md" ! -name "log.md" ! -name "CLAUDE.md" ! -name "Soul.md" \
   | wc -l | tr -d ' ')
 
-# Count wikilink entries in index.md: lines containing [[...]]
-indexed_pages=$(grep -c '\[\[' "$INDEX" || true)
+# Count wikilink entries in index.md, excluding navigation files (log, index, CLAUDE, Soul)
+indexed_pages=$(grep -oP '(?<=\[\[)[^\]]+(?=\]\])' "$INDEX" | grep -vcP '^(log|index|CLAUDE|Soul)$' || true)
 
 # Extract claimed total from index.md header (e.g. "> Total pages: 53")
 claimed=$(grep -oP '(?<=Total pages: )\d+' "$INDEX" || echo "unknown")
@@ -49,8 +49,14 @@ else
 fi
 
 # Check for orphan wikilinks (links in index.md pointing to non-existent files)
+# Excludes navigation files that are intentionally omitted from the page count
+EXCLUDED_LINKS="log|index|CLAUDE|Soul"
 orphans=0
 while IFS= read -r link; do
+  # Skip links to intentionally excluded navigation files
+  if echo "$link" | grep -qP "^($EXCLUDED_LINKS)$"; then
+    continue
+  fi
   # Normalize: concept-foo → concepts/concept-foo.md, etc.
   for subdir in segments concepts tools entities decisions; do
     candidate="$WIKI_DIR/$subdir/$link.md"

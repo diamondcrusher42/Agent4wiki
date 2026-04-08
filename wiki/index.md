@@ -6,7 +6,7 @@
 
 ## Templates
 
-- `templates/code-clone-TASK.md` — Code clone mission brief V1. Injection variables, Janitor handshake JSON, Repomix trap. See [[concept-clone-skill-templates]].
+- `templates/code-clone-TASK.md` — Code clone mission brief V1. Injection variables, Janitor handshake JSON, Repomix trap. See concept-clone-skill-templates.
 
 ## Segments
 
