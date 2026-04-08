@@ -75,6 +75,24 @@ None currently running. Opus v9 build just completed. Next: review cycle then po
 
 ---
 
+### [2026-04-09] Janitor Tier 1 — Haiku --max on forge-benchmark
+
+**Verdict:** Tier 1 viable for objective findings.
+
+| Metric | Value |
+|---|---|
+| Health Score | 83/100 |
+| BLOCK | 0 (correct) |
+| SUGGEST | 2 (both valid) |
+| NOTE | 1 (false positive — dict literal) |
+| Tokens | 29,104 |
+| Duration | 34 seconds |
+| Cost | ~$0.01 |
+
+Haiku found all structural issues (missing tests for report.py + score.py). Correctly identified 0 secrets/blocking issues. One false positive on multi-line dict return. Missed (as expected for Tier 1): bare `except: pass`, missing type hints, docstrings.
+
+**Partial Tier 1 confirmation.** Objective findings caught correctly. Semantic quality findings (bare except, type hints) need Tier 2 (Opus) to detect. 2-tier benchmark still needed with standardized test cases to quantify the gap.
+
 ### [2026-04-09] Janitor false positive tuning — agent-janitor v1.0.1
 
 **Not a model benchmark** — this was a pattern/config tuning experiment based on real scan.
