@@ -1,8 +1,8 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-08
-> Total pages: 54
-> Sources ingested: 8 repos/articles + 1 architecture session + 9 external reviews + 1 implementation plan + 1 research PDF + 1 template
+> Total pages: 55
+> Sources ingested: 8 repos/articles + 1 architecture session + 9 external reviews + 2 implementation plans + 1 research PDF + 1 template
 
 ## Templates
 
@@ -76,6 +76,7 @@
 - [[review-code-audit-1]] — Full codebase audit: 6 🔴 critical (compile errors, security), 9 🟡 structural, 5 🟢 weak. Priority fix order included.
 - [[review-gemini-review7]] — Current state deep dive: inbox pattern validated, 3 blind spots (TS→Python bridge, vault stub, Janitor loop). "This week" path: Steps 1+2 = first autonomous loop.
 - [[review-opus-review5]] — Opus Janitor audit (early state): R1 monorepo decision documented, R2/R3/Y3/Y5 fixed, Y1 partial (2 orphan links remain), Y2/Y4 open.
+- [[plan-build-v1]] — Phase-by-phase build guide with exact code specs + unit tests. Phase 0 (compile fixes) → Phase 4 (first autonomous loop).
 
 ## Log
 
