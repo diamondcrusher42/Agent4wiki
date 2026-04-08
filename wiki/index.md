@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-08
-> Total pages: 96
+> Total pages: 99
 > Sources ingested: 8 repos/articles + 1 architecture session + 14 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
 
 ## Templates
@@ -113,6 +113,9 @@
 - [[review-gemini-review93]] — Gemini post-v6: 1MB scanner loophole (pad to 1.1MB to bypass), self-reporting token metrics bypass, brittle regex fallback for nested JSON, env deny-list vs allowlist, git worktree orphan branches.
 - [[plan-build-v7]] — Phase A (Python vault leak, git status scan, tests_passed fix, large file flag) + Phase B (env allowlist, spawner setup.sh) + Phase C (MAX_RETRIES config, BRAIN_ONLY wiki context, confidence gate). Target 157→175 tests.
 - [[build-state-2026-04-08-v7]] — Plan-build-v7 complete: 157→174 tests. Python vault leak fixed, git status porcelain, env allowlist, confidence gate, shared clone_config.json. opus-build latest.
+- [[review-opus-review94]] — Opus post-v7: TS/Python Janitor decision tree divergence (COMPLETED+tests_passed:false → TS=BLOCK, Python=SUGGEST), REQUIRED_ENV_KEYS missing SHELL/USER, git status rename parsing bug, symlink boundary bypass, hardcoded wiki pages in routeToBrain.
+- [[review-gemini-review94]] — Gemini post-v7: Two Brains problem (TS/Python drift), synchronous watch loop (queue blocking), shell injection in runner.ts, quarantine mode missing, context truncation mid-JSON, blind teardown forensic loss.
+- [[plan-build-v8]] — Phase A (Janitor unification, rename parsing, SHELL/USER, symlink guard) + Phase B (watch concurrency, shell safety, config externalization) + Phase C (quarantine mode, line-boundary truncation, method rename). Target: 174 → ~192 tests.
 - [[review-skills-playbook]] — V4 Skills Playbook: 28-skill ceiling, 4-gate triage, 5-layer security (Docker sandbox, Nemotron LLM-on-LLM, Keychain scoping), Quarantine→Probation→Production pipeline, Forge owns lifecycle.
 - [[code-suggestions-skills]] — 7 concrete code changes: required_skills task field, provisionSkills() spawner, skills/ library, Docker sandbox flag, per-skill scopes.yaml, GitHub Actions gate, Janitor skill audit. Ordered by phase.
 - [[review-opus-review89]] — Opus 5-perspective review (post Phase 5-7): Security 4, Reliability 5, Tests 6, Architecture 7, Prod 3. Top 3 beyond v3: unify TS/Python Janitor, 2-pass classifier, Forge cost cap. 6 more candidates for plan-build-v4.

@@ -2,6 +2,17 @@
 
 Chronological record of all wiki operations. Append-only.
 
+## [2026-04-08] ingest | Gemini review 94 (post-v7)
+
+review-gemini-review94: Two Brains problem, synchronous watch loop, shell injection runner.ts, quarantine mode missing, context truncation mid-JSON.
+
+## [2026-04-08] plan | plan-build-v8
+
+Phase A: Janitor unification (TS/Python), rename parsing fix, SHELL/USER env keys, symlink boundary.
+Phase B: Watch concurrency, execFile safety, config externalization (confidence threshold + wiki pages).
+Phase C: Quarantine mode for BLOCK, line-boundary truncation, truncateHistory rename.
+Target: 174 → ~192 tests.
+
 ## [2026-04-07] init | Wiki created
 
 Initial wiki build from architecture session. 7 external sources ingested (MemPalace, Git Worktrees article, Karpathy LLM Wiki, last30days, AI Personal OS Skills, hstack, BitNet). 1 original architecture spec synthesized. 28 wiki pages created across segments, concepts, tools, entities, and decisions.
