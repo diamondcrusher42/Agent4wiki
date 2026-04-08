@@ -89,6 +89,7 @@ templates/
 wiki/
   concepts/
     concept-aaak-compression.md
+    concept-clone-lifecycle.md
     concept-clone-skill-templates.md
     concept-dispatcher.md
     concept-distributed-clones.md
@@ -98,6 +99,7 @@ wiki/
     concept-mission-briefs.md
     concept-multi-channel-bridge.md
     concept-node-setup.md
+    concept-routing-classifier.md
     concept-shadow-benchmarking.md
     concept-soul-md.md
     concept-summary-pipeline.md
@@ -126,6 +128,172 @@ wiki/
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="wiki/concepts/concept-clone-lifecycle.md">
+# Clone Lifecycle
+
+> The complete execution sequence for a disposable clone — from worktree creation to teardown. Owned by CloneWorker. Three phases: spawn, run, teardown.
+
+## Overview
+
+Every clone follows a deterministic lifecycle. No exceptions. The lifecycle is owned by `CloneWorker.execute()` in `core/clones/clone_worker.ts`. No other class spawns or manages the full lifecycle.
+
+```
+Brain writes task.json → brain/inbox/
+  ↓
+dispatcher.py picks up task
+  ↓
+npx ts-node core/clones/clone_worker.ts --task <path>
+  ↓
+  [SPAWN]    spawner.ts creates git worktree in state/worktrees/task-{id}/
+  [KEYCHAIN] provisionEnvironment() writes .env to worktree
+  [SETUP]    setup.sh runs: npm install, pip install, task-specific setup
+  [RUN]      runner.ts launches: claude --model {model} --print --dangerously-skip-permissions -p "{prompt}"
+  [HANDSHAKE] clone outputs JSON as final line of stdout
+  [JANITOR]  auditor.ts evaluates handshake → BLOCK / SUGGEST / NOTE
+  [TEARDOWN] revokeEnvironment() deletes .env, removeWorktree() cleans up
+  ↓
+CloneResult JSON output to stdout
+  ↓
+dispatcher.py parses result, calls bridge.py
+```
+
+## Phase 1: Spawn
+
+**Owner:** `core/clones/lifecycle/spawner.ts` — `createWorktree()`
+
+1. Create git worktree: `git worktree add state/worktrees/task-{id} -b task-{id}`
+2. Write `setup.sh` to worktree root:
+   ```bash
+   #!/bin/bash
+   cd "$(dirname "$0")"
+   [[ -f package.json ]] && npm install --silent
+   [[ -f requirements.txt ]] && pip install -r requirements.txt --quiet
+   echo "Setup complete."
+   ```
+3. Append task-specific setup commands from template if present
+
+## Phase 2: Run
+
+**Owner:** `core/clones/lifecycle/runner.ts` — `run()`
+
+1. Execute `setup.sh` first. If missing: log warning, continue.
+2. Build prompt via `PromptBuilder.buildPrompt()` (5 injection variables)
+3. Launch clone process:
+   ```
+   claude --model {task.model} --print --dangerously-skip-permissions -p "{prompt}"
+   ```
+   Fallback: set `CLAUDE_MODEL={task.model}` as env var if `--model` flag unsupported
+4. Capture all stdout. Enforce timeout (`task.timeoutMinutes`).
+
+## Phase 3: Teardown
+
+**Owner:** `core/clones/lifecycle/teardown.ts` — `removeWorktree()` + `mergeWorktree()`
+
+- `revokeEnvironment()` MUST run in `finally` block — even if clone crashed
+- Verify `.env` deleted: `ls state/worktrees/task-{id}/.env` must fail
+- If Janitor approved (NOTE): merge branch, archive task JSON to brain/completed/
+- If Janitor rejected (BLOCK/SUGGEST): move to brain/failed/, log to forge/events.jsonl
+
+## Handshake Protocol
+
+The clone outputs its result as the **final line of stdout**:
+
+```json
+{
+  "status": "COMPLETED|FAILED_REQUIRE_HUMAN|FAILED_RETRY|BLOCKED_IMPOSSIBLE",
+  "summary": "one-line description",
+  "files_changed": ["path/to/file.ts"],
+  "tests_passed": true,
+  "tokens_consumed": 0,
+  "duration_seconds": 0,
+  "confidence": 0.85,
+  "janitor_notes": "brief notes for auditor"
+}
+```
+
+**Parser rule:** Split stdout by `\n`, reverse-iterate, find last line starting with `{`, `JSON.parse()` it. If no valid JSON found → treat as `FAILED_REQUIRE_HUMAN`.
+
+## Security Invariants
+
+- `.env` file must NOT exist after teardown (verify before marking complete)
+- `grep -r "sk-ant" state/worktrees/` must return nothing
+- Path traversal: all file access via `path.resolve()`, never `path.includes()`
+- Allowed paths enforced: `if (!resolved.startsWith(path.resolve(worktreePath))) throw`
+
+*See also: [[segment-clones]], [[concept-git-worktrees]], [[concept-clone-skill-templates]], [[segment-janitor]]*
+</file>
+
+<file path="wiki/concepts/concept-routing-classifier.md">
+# Routing Classifier
+
+> Zero-cost complexity routing at the User Agent layer. Regex-only — no LLM, no latency. Three output classes: DIRECT, BRAIN_ONLY, FULL_PIPELINE.
+
+## What It Does
+
+The `ComplexityClassifier` in `core/routing/classifier.ts` is the first thing that runs on every user input. It decides how to route the request before any LLM is invoked.
+
+The fundamental rule: **don't burn tokens on tasks that don't need them.**
+
+```
+User input
+    ↓
+ComplexityClassifier.classify(input)  ← regex only, < 1ms
+    ↓
+DIRECT          → UserAgent answers directly (< 1s)
+BRAIN_ONLY      → BrainPlanner.plan(), no clone (2-5s)
+FULL_PIPELINE   → Full 7-segment loop, clone execution (10-60s+)
+```
+
+## Classification Rules
+
+Implemented as regex heuristics, in priority order:
+
+| Class | Pattern examples | Rationale |
+|-------|-----------------|-----------|
+| `DIRECT` | "what is X", "status", "show me", simple queries | No execution needed — UserAgent answers from state |
+| `BRAIN_ONLY` | "plan X", "how would you approach", analysis tasks | Needs planning, no code execution |
+| `FULL_PIPELINE` | "write", "build", "fix", "create", "implement", "run" | Requires clone execution |
+
+Ambiguous inputs default to `BRAIN_ONLY`. The Brain can escalate to `FULL_PIPELINE` if it decides a clone is needed.
+
+## Why Regex, Not LLM
+
+Flagged in [[review-gemini-review3]]: a LLM classifier reintroduces the latency it was designed to eliminate. The classifier runs synchronously before any API call. It costs zero tokens and adds < 1ms.
+
+The classifier does NOT need to be perfect — it needs to be fast and conservative. Over-classifying as FULL_PIPELINE wastes tokens; under-classifying as DIRECT is the worse error (fails silently). When in doubt: escalate.
+
+## state.json Update Trigger
+
+The classifier's output drives when `state.json` updates:
+- `FULL_PIPELINE` routing → always flush state after completion
+- `DIRECT` interaction: every 5th interaction → flush state
+
+Never update on every prompt (token cost).
+
+## Implementation
+
+```typescript
+// core/routing/classifier.ts
+export type ComplexityClass = 'DIRECT' | 'BRAIN_ONLY' | 'FULL_PIPELINE';
+
+export class ComplexityClassifier {
+  classify(input: string): ComplexityClass {
+    // Phase 0-complete — regex implementation
+  }
+}
+```
+
+The classifier is one of the few complete, non-stub components in the current repo.
+
+## Relationship to Dispatcher
+
+The classifier runs in TypeScript (User Agent layer). The Python dispatcher never classifies — it only executes what the Brain has already decided. The Brain writes a task JSON to `brain/inbox/` with `type: "clone"` already set.
+
+Classification happened earlier, at the UserAgent layer.
+
+*See also: [[segment-user-agent]], [[concept-dispatcher]], [[concept-mission-briefs]], [[concept-token-economics]]*
+</file>
 
 <file path="brain/bridge.py">
 """
@@ -2287,95 +2455,6 @@ Write-Host "  3. Start:         Start-ScheduledTask -TaskName '$taskName'"
 Write-Host "     OR manually:   cd $AgentDir; .\venv\Scripts\activate; python brain\dispatcher.py watch"
 Write-Host "  4. Dry run test:  python brain\dispatcher.py dry brain\inbox\example.json"
 Write-Host ""
-</file>
-
-<file path="scripts/wiki-lint.sh">
-#!/usr/bin/env bash
-# wiki-lint.sh — Verify wiki page count matches index.md entries.
-# Exits 0 if clean, 1 if mismatches found.
-# Run as: bash scripts/wiki-lint.sh [wiki_dir]
-
-set -euo pipefail
-
-WIKI_DIR="${1:-$(dirname "$0")/../wiki}"
-WIKI_DIR="$(cd "$WIKI_DIR" && pwd)"
-INDEX="$WIKI_DIR/index.md"
-
-if [[ ! -f "$INDEX" ]]; then
-  echo "ERROR: index.md not found at $INDEX" >&2
-  exit 1
-fi
-
-# Count .md files in wiki/ (excluding index.md and log.md — these are navigation, not pages)
-actual_pages=$(find "$WIKI_DIR" -name "*.md" \
-  ! -name "index.md" ! -name "log.md" ! -name "CLAUDE.md" ! -name "Soul.md" \
-  | wc -l | tr -d ' ')
-
-# Count wikilink entries in index.md, excluding navigation files (log, index, CLAUDE, Soul)
-indexed_pages=$(grep -oP '(?<=\[\[)[^\]]+(?=\]\])' "$INDEX" | grep -vcP '^(log|index|CLAUDE|Soul)$' || true)
-
-# Extract claimed total from index.md header (e.g. "> Total pages: 53")
-claimed=$(grep -oP '(?<=Total pages: )\d+' "$INDEX" || echo "unknown")
-
-echo "Wiki lint report"
-echo "  Directory:    $WIKI_DIR"
-echo "  .md files:    $actual_pages  (excluding index/log/CLAUDE/Soul)"
-echo "  Index entries: $indexed_pages wikilinks"
-echo "  Claimed total: $claimed"
-echo ""
-
-errors=0
-
-if [[ "$actual_pages" -ne "$indexed_pages" ]]; then
-  echo "MISMATCH: $actual_pages files vs $indexed_pages index entries"
-  errors=$((errors + 1))
-else
-  echo "OK: file count matches index entries ($actual_pages)"
-fi
-
-if [[ "$claimed" != "unknown" && "$claimed" -ne "$actual_pages" ]]; then
-  echo "MISMATCH: index.md claims $claimed pages but $actual_pages files exist"
-  errors=$((errors + 1))
-else
-  [[ "$claimed" != "unknown" ]] && echo "OK: claimed total matches actual ($claimed)"
-fi
-
-# Check for orphan wikilinks (links in index.md pointing to non-existent files)
-# Excludes navigation files that are intentionally omitted from the page count
-EXCLUDED_LINKS="log|index|CLAUDE|Soul"
-orphans=0
-while IFS= read -r link; do
-  # Skip links to intentionally excluded navigation files
-  if echo "$link" | grep -qP "^($EXCLUDED_LINKS)$"; then
-    continue
-  fi
-  # Normalize: concept-foo → concepts/concept-foo.md, etc.
-  for subdir in segments concepts tools entities decisions; do
-    candidate="$WIKI_DIR/$subdir/$link.md"
-    if [[ -f "$candidate" ]]; then
-      break
-    fi
-    candidate=""
-  done
-  if [[ -z "${candidate:-}" ]]; then
-    echo "ORPHAN: [[$link]] in index.md has no matching file"
-    orphans=$((orphans + 1))
-    errors=$((errors + 1))
-  fi
-done < <(grep -oP '(?<=\[\[)[^\]]+(?=\]\])' "$INDEX" || true)
-
-if [[ "$orphans" -eq 0 ]]; then
-  echo "OK: no orphan wikilinks in index.md"
-fi
-
-echo ""
-if [[ "$errors" -eq 0 ]]; then
-  echo "PASS — wiki is consistent"
-  exit 0
-else
-  echo "FAIL — $errors issue(s) found"
-  exit 1
-fi
 </file>
 
 <file path="wiki/concepts/concept-aaak-compression.md">
@@ -6172,6 +6251,95 @@ export class KeychainManager {
 }
 </file>
 
+<file path="scripts/wiki-lint.sh">
+#!/usr/bin/env bash
+# wiki-lint.sh — Verify wiki page count matches index.md entries.
+# Exits 0 if clean, 1 if mismatches found.
+# Run as: bash scripts/wiki-lint.sh [wiki_dir]
+
+set -euo pipefail
+
+WIKI_DIR="${1:-$(dirname "$0")/../wiki}"
+WIKI_DIR="$(cd "$WIKI_DIR" && pwd)"
+INDEX="$WIKI_DIR/index.md"
+
+if [[ ! -f "$INDEX" ]]; then
+  echo "ERROR: index.md not found at $INDEX" >&2
+  exit 1
+fi
+
+# Count .md files in wiki/ (excluding index.md and log.md — these are navigation, not pages)
+actual_pages=$(find "$WIKI_DIR" -name "*.md" \
+  ! -name "index.md" ! -name "log.md" ! -name "CLAUDE.md" ! -name "Soul.md" \
+  | wc -l | tr -d ' ')
+
+# Count wikilink entries in index.md, excluding navigation files (log, index, CLAUDE, Soul)
+indexed_pages=$(grep -oP '(?<=\[\[)[^\]]+(?=\]\])' "$INDEX" | grep -vcP '^(log|index|CLAUDE|Soul)$' || true)
+
+# Extract claimed total from index.md header (e.g. "> Total pages: 53")
+claimed=$(grep -oP '(?<=Total pages: )\d+' "$INDEX" || echo "unknown")
+
+echo "Wiki lint report"
+echo "  Directory:    $WIKI_DIR"
+echo "  .md files:    $actual_pages  (excluding index/log/CLAUDE/Soul)"
+echo "  Index entries: $indexed_pages wikilinks"
+echo "  Claimed total: $claimed"
+echo ""
+
+errors=0
+
+if [[ "$actual_pages" -ne "$indexed_pages" ]]; then
+  echo "MISMATCH: $actual_pages files vs $indexed_pages index entries"
+  errors=$((errors + 1))
+else
+  echo "OK: file count matches index entries ($actual_pages)"
+fi
+
+if [[ "$claimed" != "unknown" && "$claimed" -ne "$actual_pages" ]]; then
+  echo "MISMATCH: index.md claims $claimed pages but $actual_pages files exist"
+  errors=$((errors + 1))
+else
+  [[ "$claimed" != "unknown" ]] && echo "OK: claimed total matches actual ($claimed)"
+fi
+
+# Check for orphan wikilinks (links in index.md pointing to non-existent files)
+# Excludes navigation files that are intentionally omitted from the page count
+EXCLUDED_LINKS="log|index|CLAUDE|Soul"
+orphans=0
+while IFS= read -r link; do
+  # Skip links to intentionally excluded navigation files
+  if echo "$link" | grep -qP "^($EXCLUDED_LINKS)$"; then
+    continue
+  fi
+  # Normalize: concept-foo → concepts/concept-foo.md, etc.
+  for subdir in segments concepts tools entities decisions; do
+    candidate="$WIKI_DIR/$subdir/$link.md"
+    if [[ -f "$candidate" ]]; then
+      break
+    fi
+    candidate=""
+  done
+  if [[ -z "${candidate:-}" ]]; then
+    echo "ORPHAN: [[$link]] in index.md has no matching file"
+    orphans=$((orphans + 1))
+    errors=$((errors + 1))
+  fi
+done < <(grep -oP '(?<=\[\[)[^\]]+(?=\]\])' "$INDEX" || true)
+
+if [[ "$orphans" -eq 0 ]]; then
+  echo "OK: no orphan wikilinks in index.md"
+fi
+
+echo ""
+if [[ "$errors" -eq 0 ]]; then
+  echo "PASS — wiki is consistent"
+  exit 0
+else
+  echo "FAIL — $errors issue(s) found"
+  exit 1
+fi
+</file>
+
 <file path="templates/code-clone-TASK.md">
 # MISSION BRIEF: CODE CLONE (Software Engineering)
 # Master Code Clone Template (TASK.md) — V2
@@ -6179,15 +6347,15 @@ export class KeychainManager {
 #             tokens_consumed + duration_seconds to handshake JSON
 
 ## 1. SOUL & IDENTITY
-{INJECT_SOUL_MD_HERE}
+{INJECT_SOUL_HERE}
 
 You are a disposable, highly specialized software engineering clone. You do not plan; you execute the mission detailed below. You are under the strict surveillance of the Janitor segment. Your output must perfectly conform to the Execution Lifecycle syntax.
 
 ## 2. SECURITY & SANDBOX BOUNDARIES (CRITICAL)
 You are operating within a strictly isolated Git worktree.
-* **Allowed Path:** `{INJECT_ALLOWED_PATH_HERE}`
-* **Restriction:** You are **STRICTLY FORBIDDEN** from navigating to, reading, or modifying any file outside of this path. Do not attempt to access `~`, `/users/`, Desktop, Downloads, or AppData.
-* **Violation:** Any attempt to read or write outside your allowed path will trigger an immediate hard kill of your process and log a fatal security failure.
+* **Allowed Paths:** `{INJECT_ALLOWED_PATHS_HERE}`
+* **Restriction:** You are **STRICTLY FORBIDDEN** from navigating to, reading, or modifying any file outside of these paths. Do not attempt to access `~`, `/users/`, Desktop, Downloads, or AppData.
+* **Violation:** Any attempt to read or write outside your allowed paths will trigger an immediate hard kill of your process and log a fatal security failure.
 
 ## 2b. NETWORK SCOPE
 You are permitted to make outbound calls ONLY to the following endpoints:
@@ -6201,7 +6369,7 @@ Any outbound call to an endpoint not on this list must be aborted and logged in 
 The above pages contain domain knowledge relevant to your mission. Read this before DECOMPOSE. Do not re-derive what is already compiled here.
 
 ## 4. MISSION OBJECTIVE
-{INJECT_BRAIN_DELEGATED_TASK_HERE}
+{INJECT_TASK_HERE}
 
 ---
 
@@ -6230,7 +6398,7 @@ Perform the code changes.
 Before finalizing the mission, perform a self-review:
 * Did I fulfill the exact objective?
 * Did I introduce any regressions?
-* Did I stay entirely within the `{INJECT_ALLOWED_PATH_HERE}`?
+* Did I stay entirely within the `{INJECT_ALLOWED_PATHS_HERE}`?
 * Did I make any calls to endpoints outside my declared network scope?
 
 ## 6. MISSION DEBRIEF (OUTPUT FORMAT)
@@ -6247,82 +6415,6 @@ When you have completed the [AUDIT] phase, output a final summary for the Janito
   "reason": "Required if status is BLOCKED_IMPOSSIBLE — why the task cannot be completed as specified."
 }
 ```
-</file>
-
-<file path="wiki/concepts/concept-clone-skill-templates.md">
-# Clone Skill Templates
-
-> Per-skill instruction sets for disposable clone executors. Templates improve over time as the Forge accumulates performance data.
-
-## What a Clone Skill Template Is
-
-A clone skill template is a pre-written mission brief for a specific type of task. Rather than the Brain composing a prompt from scratch every time, it fills injection variables into a validated template.
-
-Templates encode:
-- The expected deliverable and quality bar
-- File system scope (`{INJECT_ALLOWED_PATHS_HERE}`)
-- Network scope (`{INJECT_ALLOWED_ENDPOINTS_HERE}`)
-- Required handshake format (the Janitor audit target)
-- Common failure modes to avoid
-
-## Standard Injection Variables
-
-All templates use exactly these variable names. `prompt_builder.ts` replaces them:
-
-| Variable | Content |
-|----------|---------|
-| `{INJECT_SOUL_HERE}` | `wiki/Soul.md` + `state/user_agent/soul-private.md` |
-| `{INJECT_ALLOWED_PATHS_HERE}` | Filesystem scope for this clone |
-| `{INJECT_ALLOWED_ENDPOINTS_HERE}` | Network scope from `scopes.yaml` |
-| `{INJECT_WIKI_CONTEXT_HERE}` | Relevant wiki pages (max ~500 tokens) |
-| `{INJECT_TASK_HERE}` | The mission objective |
-
-Templates MUST use these exact names. Non-standard variable names will silently fail (unreplaced string left in prompt).
-
-## Current Templates
-
-### `templates/code-clone-TASK.md` — Code Clone V1
-
-The primary template for coding tasks. Structure:
-
-1. **Identity** — Who you are (Soul injection)
-2. **Scope** — What paths and endpoints you may touch
-3. **Mission** — The specific task (`{INJECT_TASK_HERE}`)
-4. **Context** — Relevant wiki knowledge (`{INJECT_WIKI_CONTEXT_HERE}`)
-5. **Repomix trap** — Read repomix-focused-context.txt before touching any file
-6. **Handshake** — Mandatory JSON output format for Janitor audit
-
-### Handshake JSON (mandatory last line of stdout)
-
-```json
-{
-  "status": "COMPLETED|FAILED|REQUIRE_HUMAN",
-  "summary": "one-line description of what was done",
-  "files_changed": ["path/to/file.ts"],
-  "tests_passed": true,
-  "confidence": 0.0-1.0
-}
-```
-
-The clone MUST output this as the **final line of stdout**. Parser: reverse-iterate stdout lines, find last line starting with `{`, `JSON.parse()` it. If no valid JSON → `FAILED_REQUIRE_HUMAN`.
-
-## How Templates Improve (Forge Loop)
-
-The Forge records every task outcome in `forge/events.jsonl`. Over time:
-
-1. Tasks with high Janitor confidence scores → template patterns extracted
-2. Repeated failure modes → added to template as explicit "avoid" instructions
-3. Better-performing prompt variants → A/B tested by Forge V0.1
-
-Templates are versioned (`TASK-v1.md`, `TASK-v2.md`). The Brain's `PromptBuilder` selects the current version.
-
-## Location
-
-- `templates/` — all mission brief templates
-- `core/brain/prompt_builder.ts` — injection logic
-- `wiki/Soul.md` — the identity file injected into every template
-
-*See also: [[segment-clones]], [[segment-brain]], [[segment-forge]], [[concept-mission-briefs]]*
 </file>
 
 <file path="wiki/concepts/concept-dispatcher.md">
@@ -7024,6 +7116,82 @@ export interface MemoryStore {
    */
   audit(olderThan?: Date): Promise<AuditReport>;
 }
+</file>
+
+<file path="wiki/concepts/concept-clone-skill-templates.md">
+# Clone Skill Templates
+
+> Per-skill instruction sets for disposable clone executors. Templates improve over time as the Forge accumulates performance data.
+
+## What a Clone Skill Template Is
+
+A clone skill template is a pre-written mission brief for a specific type of task. Rather than the Brain composing a prompt from scratch every time, it fills injection variables into a validated template.
+
+Templates encode:
+- The expected deliverable and quality bar
+- File system scope (`{INJECT_ALLOWED_PATHS_HERE}`)
+- Network scope (`{INJECT_ALLOWED_ENDPOINTS_HERE}`)
+- Required handshake format (the Janitor audit target)
+- Common failure modes to avoid
+
+## Standard Injection Variables
+
+All templates use exactly these variable names. `prompt_builder.ts` replaces them:
+
+| Variable | Content |
+|----------|---------|
+| `{INJECT_SOUL_HERE}` | `wiki/Soul.md` + `state/user_agent/soul-private.md` |
+| `{INJECT_ALLOWED_PATHS_HERE}` | Filesystem scope for this clone |
+| `{INJECT_ALLOWED_ENDPOINTS_HERE}` | Network scope from `scopes.yaml` |
+| `{INJECT_WIKI_CONTEXT_HERE}` | Relevant wiki pages (max ~500 tokens) |
+| `{INJECT_TASK_HERE}` | The mission objective |
+
+Templates MUST use these exact names. Non-standard variable names will silently fail (unreplaced string left in prompt).
+
+## Current Templates
+
+### `templates/code-clone-TASK.md` — Code Clone V1
+
+The primary template for coding tasks. Structure:
+
+1. **Identity** — Who you are (Soul injection)
+2. **Scope** — What paths and endpoints you may touch
+3. **Mission** — The specific task (`{INJECT_TASK_HERE}`)
+4. **Context** — Relevant wiki knowledge (`{INJECT_WIKI_CONTEXT_HERE}`)
+5. **Repomix trap** — Read repomix-focused-context.txt before touching any file
+6. **Handshake** — Mandatory JSON output format for Janitor audit
+
+### Handshake JSON (mandatory last line of stdout)
+
+```json
+{
+  "status": "COMPLETED|FAILED|REQUIRE_HUMAN",
+  "summary": "one-line description of what was done",
+  "files_changed": ["path/to/file.ts"],
+  "tests_passed": true,
+  "confidence": 0.0-1.0
+}
+```
+
+The clone MUST output this as the **final line of stdout**. Parser: reverse-iterate stdout lines, find last line starting with `{`, `JSON.parse()` it. If no valid JSON → `FAILED_REQUIRE_HUMAN`.
+
+## How Templates Improve (Forge Loop)
+
+The Forge records every task outcome in `forge/events.jsonl`. Over time:
+
+1. Tasks with high Janitor confidence scores → template patterns extracted
+2. Repeated failure modes → added to template as explicit "avoid" instructions
+3. Better-performing prompt variants → A/B tested by Forge V0.1
+
+Templates are versioned (`TASK-v1.md`, `TASK-v2.md`). The Brain's `PromptBuilder` selects the current version.
+
+## Location
+
+- `templates/` — all mission brief templates
+- `core/brain/prompt_builder.ts` — injection logic
+- `wiki/Soul.md` — the identity file injected into every template
+
+*See also: [[segment-clones]], [[segment-brain]], [[segment-forge]], [[concept-mission-briefs]]*
 </file>
 
 <file path="wiki/concepts/concept-mission-briefs.md">
