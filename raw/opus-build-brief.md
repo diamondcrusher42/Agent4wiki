@@ -227,6 +227,22 @@ These are non-negotiable. They were established through 9 external reviews and h
 
 **Compile before deploy.** `npx tsc --noEmit` must exit 0 before any code is run. Six compile errors exist in the current scaffold — they must be fixed in Phase 0 before Phase 1 begins.
 
+**Strict language mandate — TypeScript owns `core/` and `bin/`. No exceptions.** The entire Core Engine (`core/` and `bin/`) MUST be written in strict TypeScript (Node.js). The Repomix context contains heavy Python references because AI tooling is Python-heavy — do not be misled. Clones may execute Python scripts inside their worktrees, but every file in `core/` that you write or modify is TypeScript. If you find yourself writing Python in `core/`, stop and reconsider.
+
+**Path traversal defence — always `path.resolve()`.** When building `KeychainManager` and clone execution environments, all paths MUST be resolved to absolute paths using Node's `path.resolve()`. Verify that the resolved path strictly starts with the allowed worktree path before proceeding. `path.includes(allowed)` is not sufficient — it is vulnerable to `../../../` traversal. Required pattern:
+```typescript
+const resolved = path.resolve(requestedPath);
+if (!resolved.startsWith(path.resolve(worktreePath))) {
+  throw new Error(`Path traversal attempt: ${requestedPath}`);
+}
+```
+
+**`runner.ts` must execute `setup.sh` before the LLM mission.** Every clone worktree contains a `setup.sh` (written by `spawner.ts`). The runner must execute it before launching the claude session. This ensures npm/pip dependencies are installed. A clone that starts without its dependencies installed will fail the Janitor audit immediately. If `setup.sh` is missing, proceed but log a warning — it is optional, not mandatory.
+
+**`state.json` updates are asynchronous and triggered, not per-turn.** `state.json` is updated only when: (a) the ComplexityClassifier routes to `FULL_PIPELINE`, or (b) every 5 `DIRECT` interactions have accumulated. Do NOT update on every prompt — this burns tokens on trivial turns. Implement a lightweight `flushState()` method called from these two trigger points only.
+
+**MemPalace MCP API is partially unknown — use `// TODO` markers.** The `repomix-full-context.txt` does not include the MemPalace server's tool definitions. When implementing `MemPalaceAdapter`, assume the MCP server exposes tools named: `create_room`, `add_memory`, `search_vault`, `get_aaak_summary`, `delete_memory`, `list_rooms`. Generate TypeScript interfaces assuming standard MCP JSON-RPC protocol. Where the exact parameter schema is uncertain, leave a `// TODO: Map to exact MemPalace MCP schema` comment. Do not guess and proceed silently — make unknowns explicit.
+
 ---
 
 ## 6. Decision Summary
@@ -384,5 +400,36 @@ Phase 4 is complete when this runs without manual intervention:
    ✓ tail forge/events.jsonl    (ForgeRecord entry present)
    ✓ Telegram received the notification
 ```
+
+---
+
+## 12. Output Protocol — Staged Generation (Critical)
+
+**Do NOT attempt to write the entire codebase in one response.**
+
+You will run out of output tokens partway through a critical file. A half-written `KeychainManager` is worse than no implementation.
+
+Follow this staged protocol:
+
+```
+Step 1: Output complete code for Phase 0 only (all 8 compile fixes).
+        → STOP. Wait for "Proceed to Phase 1."
+
+Step 2: Output complete code for Phase 1 (dispatcher.py fixes + Janitor integration).
+        → STOP. Wait for "Proceed to Phase 2."
+
+Step 3: Output complete code for Phase 2 (loadMasterVault + scanForLeaks).
+        → STOP. Wait for "Proceed to Phase 3."
+
+Step 4: Output complete code for Phase 3 (spawner + runner + teardown).
+        → STOP. Wait for "Proceed to Phase 4."
+
+Step 5: Output complete code for Phase 4 (BrainPlanner + triggerFullPipeline).
+        → STOP. Declare: "First autonomous loop ready. Run DoD checklist."
+```
+
+Each step: write complete, compilable, test-passing files. No placeholders. No stubs except where the build plan explicitly permits them.
+
+If you are unsure whether to proceed: stop and ask. An incomplete file is worse than no file.
 
 Start with Phase 0. Good luck.
