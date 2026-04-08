@@ -1,8 +1,14 @@
 # MemPalace
 
-Local-first AI memory system. 96.6% LongMemEval raw score (highest published requiring no API). Palace structure: wings (per person/project), halls (memory types: facts, events, discoveries, preferences, advice), rooms (specific topics), closets ([[concept-aaak-compression|AAAK compressed]]), drawers (verbatim transcripts).
+Local-first AI memory system. Palace structure: wings (per person/project), halls (memory types: facts, events, discoveries, preferences, advice), rooms (specific topics), closets ([[concept-aaak-compression|AAAK compressed]]), drawers (verbatim transcripts).
 
-ChromaDB for semantic search. Temporal knowledge graph on SQLite — facts have validity windows, contradictions detected automatically. MCP server with 19 tools. Auto-save hooks for Claude Code (catches context before compaction). Specialist agents with diaries map to [[segment-clones]] with persistent skill memory.
+ChromaDB for semantic search (96.6% LongMemEval R@5 in raw mode — this is ChromaDB's `all-MiniLM-L6-v2` score, not a palace-structure score). AAAK mode: 84.2% (−12.4pp), rooms mode: 89.4% (−7.2pp). Both palace-specific modes **regress from raw**. MCP server with 20 tools. Auto-save hooks for Claude Code (catches context before compaction). Specialist agents with diaries map to [[segment-clones]] with persistent skill memory.
+
+> ⚠️ **Benchmark clarification:** The 96.6% figure measures ChromaDB embeddings in raw pass-through mode. Palace structural features (wings, rooms, halls) are metadata filtering — they narrow search scope but don't improve the underlying embedding quality.
+
+> ⚠️ **KG limitations:** The SQLite knowledge graph uses slugified names with no entity resolution beyond exact matching. "Planet Zabave d.o.o." and "PZ d.o.o." are unrelated entities in the KG. Contradiction detection is not implemented — conflicting facts accumulate silently. For entity relationships, use wiki pages + explicit wikilinks instead.
+
+> Source: [[review-mempalace-issues]] (independent code review by lhl, independently reproduced by gizmax)
 
 `pip install mempalace`. Python 3.9+, chromadb, pyyaml. Zero API calls needed. github.com/milla-jovovich/mempalace. MIT license.
 
@@ -24,7 +30,7 @@ interface MemoryStore {
 ```
 
 **Architecture wins:**
-- Brain calls `readContext('L0_WAKE')` — always ≤170 tokens, AAAK logic is inside the adapter
+- Brain calls `readContext('L0_WAKE')` — budget ~600-900 tokens (independently benchmarked wake-up cost), AAAK logic is inside the adapter
 - Swap MemPalace for Qdrant/ChromaDB/SQLite: one file changes, nothing else breaks
 - `delete()` is the Janitor's scythe — sole writer for memory pruning in Phase 6
 

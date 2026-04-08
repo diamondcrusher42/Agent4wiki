@@ -14,7 +14,7 @@
 
 Expensive models for judgment, free models for grunt work. Brain gets the best. Routine clones and monitoring run for free on BitNet. User Agent never resets because it runs on a tiny always-on local model consuming only summaries via [[concept-summary-pipeline]].
 
-Wake-up cost for full world context: ~170 tokens via [[concept-aaak-compression]].
+Wake-up cost for full world context: **~600-900 tokens** via [[concept-aaak-compression]] (independently benchmarked — see [[review-mempalace-issues]]; original 170-token claim was incorrect).
 
 ## ⚠️ RTT Latency: Simple Task Problem
 

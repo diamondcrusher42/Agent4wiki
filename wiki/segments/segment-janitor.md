@@ -26,6 +26,8 @@ Decision sequence (in priority order):
 
 Runs on Janitor audit schedule (weekly or post-major-change). Uses `MemoryStore.audit()` to get structured report → deletes stale entries (90+ days = cold tier), flags contradictions, logs orphan pages. Output written to `janitor/audit-board.md` in Absolute-Human format.
 
+> ⚠️ **Contradiction detection is V4-implemented, not MemPalace-provided.** MemPalace's knowledge graph only blocks exact duplicate triples — conflicting facts (e.g., "entity has 3 employees" vs. "entity has 7 employees") accumulate silently. WikiScythe must implement its own contradiction detection via semantic similarity comparison across wiki pages (LLM call), not by delegating to the KG. See [[review-mempalace-issues]].
+
 ### The Full Loop (How Phase 6 Closes the System)
 
 ```

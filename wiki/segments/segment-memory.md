@@ -10,7 +10,7 @@ Persistent external store that indexes, retrieves, and versions all context acro
 
 Two systems combined:
 
-**[[tool-mempalace]]** handles storage and retrieval. Palace structure organizes knowledge into wings (per entity/project), halls (memory types: facts, events, discoveries, preferences, advice), and rooms (specific topics). [[concept-aaak-compression]] provides 30x lossless compression. ChromaDB powers semantic search. Temporal knowledge graph (SQLite) tracks facts with validity windows and detects contradictions.
+**[[tool-mempalace]]** handles storage and retrieval. Palace structure organizes knowledge into wings (per entity/project), halls (memory types: facts, events, discoveries, preferences, advice), and rooms (specific topics). [[concept-aaak-compression]] provides ~30x compression (lossy — 12.4% retrieval quality drop; use raw mode for quality-critical queries). ChromaDB powers semantic search. Temporal knowledge graph (SQLite) tracks facts with validity windows. ⚠️ Contradiction detection is **V4-implemented** (WikiScythe semantic comparison), not provided by MemPalace — the KG only blocks exact duplicate triples.
 
 **[[tool-llm-wiki]]** (Karpathy pattern) handles knowledge compilation. Raw sources stay immutable. A wiki of interlinked markdown pages is maintained by the system, compounding with every interaction. See [[concept-wiki-pattern]].
 
@@ -29,7 +29,7 @@ Two systems combined:
 - L2: Room recall — on demand when topic surfaces
 - L3: Deep search — semantic query across all closets
 
-Total wake-up cost: ~170 tokens for full world context. See [[concept-token-economics]].
+Total wake-up cost: ~600-900 tokens for full world context (confirmed by independent benchmark — see [[review-mempalace-issues]]). See [[concept-token-economics]].
 
 ## Operations
 
