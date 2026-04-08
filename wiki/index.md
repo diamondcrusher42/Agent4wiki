@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-08
-> Total pages: 55
+> Total pages: 56
 > Sources ingested: 8 repos/articles + 1 architecture session + 9 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge
 
 ## Templates
@@ -35,6 +35,7 @@
 - [[concept-wiki-tiering]] — Hot/warm/cold archive tiers. 500-token index cap. Prevents wiki growth failure.
 - [[concept-distributed-clones]] — Multi-machine execution fabric. Node registry, per-platform capabilities, task routing, credential isolation, use case map per hardware type.
 - [[concept-node-setup]] — Step-by-step setup guide: bare Linux + Windows bootstrap scripts, all dependencies, path issues, smoke tests, fleet registration format.
+- [[concept-multi-channel-bridge]] — 5-channel fallback cascade (Telegram→Email→Discord→Slack→SMS). send() vs broadcast() modes. Dispatcher routing by directive.
 
 ## Tools
 
