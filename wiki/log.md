@@ -231,3 +231,7 @@ Design principle confirmed: one agent, one mission, one skill set (1 primary + 1
 ## [2026-04-08] state | final session sync — 71 pages, opus-build 9 commits
 
 End-of-session state sync. Wiki: 71 pages (68 decisions/concepts/tools/entities/segments + 3 nav). Main repo up to date. opus-build branch: 9 commits ahead of main (Phases 0-4 + security patches + skills scaffold). All MemPalace corrections applied, all Gemini reviews processed, benchmarking infrastructure built (benchmark_score.py + results tracker), skills playbook ingested, code-suggestions-skills documented. README updated to reflect 9 commits and skills scaffold status.
+
+## [2026-04-08] review | opus-extended-review.md — Opus extended thinking code review (39 findings)
+
+Source: raw/opus-extended-review.md. Model: Opus 4.6 + extended thinking. 39 findings: 4 blockers, 6 high, 9 medium, 10 low, 10 test/script issues. Extended thinking verdict: substantially better than Gemini (4 findings) — caught 4 integration failures requiring cross-file chain tracing: (1) injection variable mismatch — Python dispatcher produces raw placeholder strings; (2) worktree path divergence — Python/TS create in different dirs; (3) template filename mismatch — neither path finds code-clone-TASK.md; (4) CLI credential exposure — context passed as CLI arg visible in /proc. All 4 blockers + 3 should-fix items patched (commit 6e6077b on opus-build). 57/57 tests pass after patches. Pages created: [[review-opus-extended]]. Index updated (72 pages).
