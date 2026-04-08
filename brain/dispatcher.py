@@ -671,38 +671,6 @@ def janitor_evaluate(handshake: dict, retry_count: int, task_id: str) -> str:
 
     return "BLOCK"
 
-    if status == "BLOCKED_IMPOSSIBLE":
-        return "BLOCK"
-
-    if status == "FAILED_REQUIRE_HUMAN":
-        return "BLOCK"
-
-    if status == "COMPLETED":
-        tests_passed = handshake.get("tests_passed", False)
-        notes = handshake.get("janitor_notes", "").lower()
-
-        # Structural checks (mirror of auditor.ts detectStructuralIssue)
-        files = handshake.get("files_modified", [])
-        if len(files) > 5 and re.search(r"also fixed|while i was at it|out of scope", notes):
-            log.warning(f"[JANITOR] SCOPE CREEP detected in {task_id}")
-            return "SUGGEST"
-
-        source_files = [f for f in files if re.search(r"\.(ts|js|py)$", f) and "test" not in f]
-        if not tests_passed and source_files:
-            log.warning(f"[JANITOR] MISSING TESTS or tests failed in {task_id}")
-            return "SUGGEST"
-
-        if any(kw in notes for kw in WARN_KEYWORDS):
-            log.warning(f"[JANITOR] ARCHITECTURAL SMELL in {task_id}: {notes[:100]}")
-            return "SUGGEST"
-
-        return "NOTE"
-
-    if status == "FAILED_RETRY" and retry_count < MAX_RETRIES - 1:
-        return "SUGGEST"
-
-    return "BLOCK"
-
 
 def write_forge_record(task: "Task", directive: str, handshake: dict):
     """Write a ForgeRecord to forge/events.jsonl for Forge consumption."""
@@ -776,9 +744,10 @@ def process_task_file(task_path: Path) -> dict:
         log_event("task_invalid", {"file": task_path.name, "error": str(e)})
         return {"status": "FAILED_REQUIRE_HUMAN", "error": str(e)}
 
-    # Move to active
+    # Move to active (skip if already there — claim_task() in watch() pre-moves)
     active_path = ACTIVE / task_path.name
-    shutil.move(str(task_path), str(active_path))
+    if task_path.parent.resolve() != ACTIVE.resolve():
+        shutil.move(str(task_path), str(active_path))
     log_event("task_started", {"task_id": task.id, "type": task.type, "source": task.source})
 
     # Fleet routing check (Phase 6B)
@@ -884,6 +853,20 @@ def get_pending_tasks() -> list[Path]:
     return tasks
 
 
+def claim_task(task_path: Path, active_dir: Path) -> bool:
+    """Atomically claim a task file by renaming it to active/.
+
+    Uses os.rename() which is atomic on the same filesystem. Only the thread
+    that wins the rename gets to process the task — all others get FileNotFoundError.
+    """
+    active_path = active_dir / task_path.name
+    try:
+        os.rename(task_path, active_path)
+        return True
+    except FileNotFoundError:
+        return False  # Another thread already claimed it
+
+
 def watch():
     """Main watch loop — polls inbox for new tasks with concurrent execution."""
     ensure_directories()
@@ -899,16 +882,15 @@ def watch():
 
             if len(active_threads) < MAX_CONCURRENT:
                 tasks = get_pending_tasks()
-                # Filter out tasks already being processed
-                active_names = {t.name for t in active_threads}
-                new_tasks = [t for t in tasks if str(t) not in active_names]
-                for task_path in new_tasks:
+                for task_path in tasks:
                     if len(active_threads) >= MAX_CONCURRENT:
                         break
+                    if not claim_task(task_path, ACTIVE):
+                        continue  # Another thread already claimed it
+                    active_path = ACTIVE / task_path.name
                     thread = threading.Thread(
                         target=process_task_file,
-                        args=(task_path,),
-                        name=str(task_path),
+                        args=(active_path,),
                         daemon=True,
                     )
                     thread.start()

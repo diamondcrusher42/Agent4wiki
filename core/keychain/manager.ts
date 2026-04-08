@@ -263,33 +263,36 @@ export class KeychainManager {
       const ext = path.extname(resolved).toLowerCase();
       if (KeychainManager.BINARY_EXTENSIONS.has(ext)) continue;
 
-      // A4: Symlink boundary check — skip files that resolve outside worktree
+      // A2 (v9): TOCTOU-safe scan — open fd first, then check realpath, then read from same fd.
+      // This prevents a race where an attacker swaps a symlink target between realpathSync and readFileSync.
+      let fd: number | null = null;
+      let content: string;
       try {
+        fd = fs.openSync(resolved, 'r');
+
+        // Symlink boundary check — skip files that resolve outside worktree
         const realPath = fs.realpathSync(resolved);
         const resolvedWorktree = path.resolve(worktreePath);
         if (!realPath.startsWith(resolvedWorktree + path.sep) && realPath !== resolvedWorktree) {
           skippedFiles.push(`SYMLINK_ESCAPE: ${rel}`);
           continue;
         }
-      } catch {
-        // realpathSync throws if file doesn't exist — skip
-        continue;
-      }
 
-      // A3: Skip files larger than 1MB to prevent OOM — track for manual review
-      try {
-        const stat = fs.statSync(resolved);
+        // Skip files larger than 1MB to prevent OOM — track for manual review
+        const stat = fs.fstatSync(fd);
         if (stat.size > KeychainManager.MAX_SCAN_FILE_BYTES) {
           console.warn(`[KEYCHAIN] Skipping large file (${stat.size} bytes): ${resolved}`);
           skippedFiles.push(rel);
           continue;
         }
-      } catch { continue; }
 
-      let content: string;
-      try {
-        content = fs.readFileSync(resolved, 'utf-8');
-      } catch { continue; }
+        content = fs.readFileSync(fd, 'utf-8');
+      } catch {
+        // File unreadable — skip
+        continue;
+      } finally {
+        if (fd !== null) fs.closeSync(fd);
+      }
 
       for (const value of allExactValues) {
         if (content.includes(value)) {

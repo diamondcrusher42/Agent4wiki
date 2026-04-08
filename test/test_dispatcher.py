@@ -17,6 +17,7 @@ from dispatcher import (
     read_handshake_file,
     build_clone_env,
     SENSITIVE_ENV_KEYS,
+    claim_task,
 )
 
 
@@ -594,3 +595,110 @@ def test_max_concurrent_respected(tmp_path, monkeypatch):
     # Max concurrent should never exceed MAX_CONCURRENT (2)
     assert len(concurrent_count) > 0
     assert max(concurrent_count) <= 2
+
+
+# ---------------------------------------------------------------------------
+# A1 (v9): Dead code removal — verify V2 decision tree is intact
+# ---------------------------------------------------------------------------
+
+def test_janitor_v2_blocked_impossible():
+    """A1 v9: BLOCKED_IMPOSSIBLE -> BLOCK (V2 logic only, dead V1 code removed)."""
+    h = {"status": "BLOCKED_IMPOSSIBLE"}
+    assert janitor_evaluate(h, 0, "t-v9-a1-1") == "BLOCK"
+
+
+def test_janitor_v2_completed_tests_failed_with_source_files():
+    """A1 v9: tests_passed=False -> BLOCK (not SUGGEST from old V1 code)."""
+    h = {
+        "status": "COMPLETED",
+        "tests_passed": False,
+        "files_modified": ["a.py"],
+        "janitor_notes": "done",
+    }
+    assert janitor_evaluate(h, 0, "t-v9-a1-2") == "BLOCK"
+
+
+def test_janitor_v2_completed_tests_passed_none_not_suggest():
+    """A1 v9: tests_passed=None should NOT produce SUGGEST (None is not False)."""
+    h = {
+        "status": "COMPLETED",
+        "tests_passed": None,
+        "files_modified": ["a.py"],
+        "janitor_notes": "clean",
+    }
+    result = janitor_evaluate(h, 0, "t-v9-a1-3")
+    assert result != "SUGGEST" or result == "NOTE"  # Should be NOTE for clean notes
+
+
+def test_janitor_v2_completed_tests_passed_true():
+    """A1 v9: COMPLETED + tests_passed=True -> NOTE."""
+    h = {
+        "status": "COMPLETED",
+        "tests_passed": True,
+        "files_modified": ["a.py"],
+        "janitor_notes": "all good",
+    }
+    assert janitor_evaluate(h, 0, "t-v9-a1-4") == "NOTE"
+
+
+# ---------------------------------------------------------------------------
+# A3 (v9): Atomic task claim via os.rename()
+# ---------------------------------------------------------------------------
+
+def test_claim_task_first_wins(tmp_path):
+    """A3 v9: First call to claim_task succeeds, file is moved."""
+    inbox = tmp_path / "inbox"
+    active = tmp_path / "active"
+    inbox.mkdir()
+    active.mkdir()
+
+    task_file = inbox / "task-001.json"
+    task_file.write_text('{"id":"t1"}')
+
+    assert claim_task(task_file, active) is True
+    assert not task_file.exists()
+    assert (active / "task-001.json").exists()
+
+
+def test_claim_task_second_fails(tmp_path):
+    """A3 v9: Second call to claim_task returns False (file already moved)."""
+    inbox = tmp_path / "inbox"
+    active = tmp_path / "active"
+    inbox.mkdir()
+    active.mkdir()
+
+    task_file = inbox / "task-001.json"
+    task_file.write_text('{"id":"t1"}')
+
+    # First claim succeeds
+    assert claim_task(task_file, active) is True
+    # Second claim fails (file no longer in inbox)
+    assert claim_task(task_file, active) is False
+
+
+def test_claim_task_two_threads_one_wins(tmp_path):
+    """A3 v9: Two threads claiming same task — only one succeeds."""
+    inbox = tmp_path / "inbox"
+    active = tmp_path / "active"
+    inbox.mkdir()
+    active.mkdir()
+
+    task_file = inbox / "task-race.json"
+    task_file.write_text('{"id":"race"}')
+
+    results = []
+    barrier = _threading.Barrier(2)
+
+    def try_claim():
+        barrier.wait()
+        results.append(claim_task(task_file, active))
+
+    t1 = _threading.Thread(target=try_claim)
+    t2 = _threading.Thread(target=try_claim)
+    t1.start()
+    t2.start()
+    t1.join(timeout=2)
+    t2.join(timeout=2)
+
+    assert results.count(True) == 1
+    assert results.count(False) == 1
