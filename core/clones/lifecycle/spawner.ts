@@ -39,7 +39,10 @@ export class CloneSpawner {
     });
 
     // 2. Copy mission brief template if available
-    const templateSrc = path.join(REPO_ROOT, 'templates', `${skill}-task.md`);
+    // Map skill to canonical template filename — code uses code-clone-TASK.md, others use <skill>-task.md
+    const templateFilenameMap: Record<string, string> = { code: 'code-clone-TASK.md' };
+    const templateFilename = templateFilenameMap[skill] ?? `${skill}-task.md`;
+    const templateSrc = path.join(REPO_ROOT, 'templates', templateFilename);
     const templateDst = path.join(worktreePath, 'TASK.md');
     if (fs.existsSync(templateSrc)) {
       await fs.promises.copyFile(templateSrc, templateDst);

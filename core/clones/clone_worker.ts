@@ -70,7 +70,11 @@ export class CloneWorker {
         await this.keychain.provisionEnvironment(handle.path, decision.requiredKeys);
         handshake = await this.runner.run(handle, prompt, brief.timeoutMinutes * 60 * 1000);
       } finally {
-        await this.keychain.revokeEnvironment(handle.path);
+        const noLeaks = await this.keychain.revokeEnvironment(handle.path);
+        if (!noLeaks) {
+          // Credentials found in worktree after revoke — treat as BLOCK regardless of Janitor verdict
+          console.error(`[CLONE_WORKER] SECURITY: Credential leak detected in ${handle.path} — forcing BLOCK`);
+        }
       }
 
       const audit: AuditResult = this.janitor.evaluateMission(handshake, retries, taskId, decision.skill);

@@ -91,7 +91,12 @@ export class BrainPlanner {
 
     // Extract JSON from response (handle markdown code fences if present)
     const jsonStr = text.replace(/^```json?\s*/m, '').replace(/```\s*$/m, '').trim();
-    const planData = JSON.parse(jsonStr);
+    let planData: any;
+    try {
+      planData = JSON.parse(jsonStr);
+    } catch (e) {
+      throw new Error(`BrainPlanner: Haiku returned malformed JSON. Raw: ${jsonStr.slice(0, 200)}`);
+    }
 
     return {
       reasoning: [planData.reasoning || 'No reasoning provided'],

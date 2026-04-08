@@ -163,7 +163,11 @@ def assemble_context(task: Task) -> str:
 
     elif task.type == "clone":
         # Clone gets skill template with injected variables
-        template_path = TEMPLATES / f"{task.skill}.md"
+        # Map skill to template filename — matches spawner.ts convention (<skill>-task.md)
+        # Special case: the canonical code template is code-clone-TASK.md
+        skill_template_map = {"code": "code-clone-TASK.md"}
+        template_filename = skill_template_map.get(task.skill, f"{task.skill}-task.md")
+        template_path = TEMPLATES / template_filename
         if template_path.exists():
             template = template_path.read_text()
         else:
@@ -172,10 +176,10 @@ def assemble_context(task: Task) -> str:
 
         # Inject soul.md into template
         soul = read_file_safe(SOUL_MD, max_tokens=200)
-        template = template.replace("{INJECT_SOUL_MD_HERE}", soul or "(no soul.md found)")
+        template = template.replace("{INJECT_SOUL_HERE}", soul or "(no soul.md found)")
 
         # Inject objective
-        template = template.replace("{INJECT_BRAIN_DELEGATED_TASK_HERE}", task.objective)
+        template = template.replace("{INJECT_TASK_HERE}", task.objective)
 
         parts.append(template)
 
@@ -214,7 +218,7 @@ def create_worktree(task: Task) -> Optional[Path]:
 
     worktree_name = f"clone-{task.skill}-{task.id}"
     branch_name = f"task/{task.id}"
-    worktree_path = BASE_DIR.parent / worktree_name
+    worktree_path = BASE_DIR / "state" / "worktrees" / worktree_name
 
     if worktree_path.exists():
         log.warning(f"Worktree already exists: {worktree_path}")
@@ -284,7 +288,7 @@ def launch_session(task: Task, context: str, worktree_path: Optional[Path] = Non
     """
     cwd = str(worktree_path) if worktree_path else str(BASE_DIR)
 
-    # Write context to a temporary prompt file in the working directory
+    # Write context to prompt file and pass via @file — avoids credential leakage in /proc/<pid>/cmdline
     prompt_file = Path(cwd) / ".dispatcher-prompt.md"
     prompt_file.write_text(context, encoding="utf-8")
 
@@ -292,7 +296,7 @@ def launch_session(task: Task, context: str, worktree_path: Optional[Path] = Non
 
     try:
         cmd = ["claude", "--model", task.model, "--print", "--dangerously-skip-permissions",
-               "-p", context]
+               "-p", f"@{prompt_file}"]
         env = {**os.environ, "CLAUDE_MODEL": task.model}
         result = subprocess.run(
             cmd,
@@ -309,7 +313,8 @@ def launch_session(task: Task, context: str, worktree_path: Optional[Path] = Non
 
         return {
             "status": "COMPLETED" if result.returncode == 0 else "FAILED_RETRY",
-            "stdout": result.stdout[-2000:] if result.stdout else "",  # last 2000 chars
+            "stdout_full": result.stdout or "",  # keep full for handshake extraction
+            "stdout": result.stdout[-2000:] if result.stdout else "",  # last 2000 chars for storage
             "stderr": result.stderr[-1000:] if result.stderr else "",
             "returncode": result.returncode,
         }
@@ -353,7 +358,7 @@ def execute_task(task: Task) -> dict:
             task_md.write_text(context, encoding="utf-8")
 
             # Inject allowed path into template
-            context = context.replace("{INJECT_ALLOWED_PATH_HERE}", str(worktree_path))
+            context = context.replace("{INJECT_ALLOWED_PATHS_HERE}", str(worktree_path))
 
         # 3. Provision credentials
         if task.required_keys:
