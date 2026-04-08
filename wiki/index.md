@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-08
-> Total pages: 82
+> Total pages: 79
 > Sources ingested: 8 repos/articles + 1 architecture session + 13 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
 
 ## Templates
