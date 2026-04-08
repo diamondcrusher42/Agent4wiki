@@ -1,6 +1,7 @@
 // core/janitor/scythe.ts
 // The Wiki Scythe — memory maintenance for the Brain's context
 // Phase 6A: Wired contradiction detection + cold-tier archival + health scoring
+// C4: Confirmation gate for archival — writes to archive-queue.md, not auto-archive
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -59,6 +60,7 @@ export class WikiScythe {
 
   /**
    * FULL AUDIT CYCLE — called weekly or after major architecture changes.
+   * C4: No longer auto-archives. Writes candidates to archive-queue.md for human review.
    */
   public async runFullAuditCycle(): Promise<void> {
     const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
@@ -69,27 +71,22 @@ export class WikiScythe {
     // Get fresh report for counts
     const report = await this.memory.audit(ninetyDaysAgo);
 
-    // Wiki-tiering pass: archive old wiki pages
-    let pagesArchived = 0;
+    // Wiki-tiering pass: queue old wiki pages for human review (not auto-archive)
+    let pagesQueued = 0;
     const wikiDir = path.join(process.cwd(), 'wiki');
     if (fs.existsSync(wikiDir)) {
-      const archiveDir = path.join(wikiDir, 'archive');
-      fs.mkdirSync(archiveDir, { recursive: true });
+      const queuePath = path.join(wikiDir, 'archive-queue.md');
 
       const wikiFiles = this.getWikiFiles(wikiDir);
       for (const filePath of wikiFiles) {
         const mtime = this.getGitMtime(filePath);
         if (mtime && mtime < ninetyDaysAgo) {
           const basename = path.basename(filePath);
-          const destPath = path.join(archiveDir, basename);
-          try {
-            fs.copyFileSync(filePath, destPath);
-            fs.unlinkSync(filePath);
-            pagesArchived++;
-            console.log(`[SCYTHE] Archived wiki page: ${basename}`);
-          } catch (err) {
-            console.error(`[SCYTHE] Failed to archive ${basename}: ${err}`);
-          }
+          const ageDays = Math.floor((Date.now() - mtime.getTime()) / (24 * 60 * 60 * 1000));
+          const entry = `- [ ] ${basename} (last modified: ${mtime.toISOString()}, age: ${ageDays}d)\n`;
+          fs.appendFileSync(queuePath, entry);
+          pagesQueued++;
+          console.warn(`[SCYTHE] Queued for archival (not yet archived): ${basename}`);
         }
       }
     }
@@ -101,7 +98,7 @@ export class WikiScythe {
       `- Stale pruned: ${report.stale_entries.length}\n` +
       `- Contradictions found: ${report.contradictions.length}\n` +
       `- Orphans flagged: ${report.orphan_pages.length}\n` +
-      `- Pages archived: ${pagesArchived}\n`;
+      `- Pages queued for archival: ${pagesQueued}\n`;
     fs.appendFileSync(auditPath, summary);
 
     // Compute health score delta
@@ -130,7 +127,52 @@ export class WikiScythe {
   }
 
   /**
-   * Get all .md files in wiki/ (excluding archive/ and index.md).
+   * PROCESS ARCHIVE QUEUE — only moves items marked [x] by a human.
+   */
+  public processArchiveQueue(): number {
+    const wikiDir = path.join(process.cwd(), 'wiki');
+    const queuePath = path.join(wikiDir, 'archive-queue.md');
+    if (!fs.existsSync(queuePath)) return 0;
+
+    const content = fs.readFileSync(queuePath, 'utf-8');
+    const lines = content.split('\n');
+    const archiveDir = path.join(wikiDir, 'archive');
+    fs.mkdirSync(archiveDir, { recursive: true });
+
+    let archived = 0;
+    const remaining: string[] = [];
+
+    for (const line of lines) {
+      const match = line.match(/^- \[x\]\s+(\S+)/);
+      if (match) {
+        const pageName = match[1];
+        const pagePath = path.join(wikiDir, pageName);
+        if (fs.existsSync(pagePath)) {
+          const destPath = path.join(archiveDir, pageName);
+          try {
+            fs.copyFileSync(pagePath, destPath);
+            fs.unlinkSync(pagePath);
+            archived++;
+            console.log(`[SCYTHE] Archived: ${pageName}`);
+          } catch (err) {
+            console.error(`[SCYTHE] Failed to archive ${pageName}: ${err}`);
+            remaining.push(line);
+          }
+        }
+        // Don't keep processed [x] items in queue
+      } else if (line.trim()) {
+        remaining.push(line);
+      }
+    }
+
+    // Rewrite queue with remaining items
+    fs.writeFileSync(queuePath, remaining.join('\n') + (remaining.length ? '\n' : ''));
+
+    return archived;
+  }
+
+  /**
+   * Get all .md files in wiki/ (excluding archive/, archive-queue.md, and index.md).
    */
   private getWikiFiles(wikiDir: string): string[] {
     const files: string[] = [];
@@ -138,7 +180,7 @@ export class WikiScythe {
     for (const entry of entries) {
       if (entry.name === 'archive') continue;
       const fullPath = path.join(wikiDir, entry.name);
-      if (entry.isFile() && entry.name.endsWith('.md') && entry.name !== 'index.md') {
+      if (entry.isFile() && entry.name.endsWith('.md') && entry.name !== 'index.md' && entry.name !== 'archive-queue.md') {
         files.push(fullPath);
       } else if (entry.isDirectory()) {
         // Recurse into subdirectories

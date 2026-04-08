@@ -494,3 +494,88 @@ test('scanForLeaks detects leak in deeply nested file', () => {
     fs.rmSync(vaultDir, { recursive: true });
   }
 });
+
+
+// ---------------------------------------------------------------------------
+// C1: exactMatchSecrets population + short-secret detection
+// ---------------------------------------------------------------------------
+
+test('secrets loaded from .env are detected by scanForLeaks (C1)', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-c1-env-'));
+  // Create a vault .env with a 12-char secret (previously bypassed by 17-char floor)
+  fs.writeFileSync(path.join(tmpDir, '.env'), 'SHORT_API_KEY=abcdef123456\n');
+
+  const originalCwd = process.cwd;
+  process.cwd = () => tmpDir;
+
+  try {
+    const km = new KeychainManager();
+
+    // Write a file that leaks the 12-char secret
+    const worktreeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-c1-leak-'));
+    fs.writeFileSync(path.join(worktreeDir, 'config.py'), "KEY = 'abcdef123456'");
+
+    const clean = (km as any).scanForLeaks(worktreeDir);
+    expect(clean).toBe(false); // should detect the 12-char secret
+
+    fs.rmSync(worktreeDir, { recursive: true });
+  } finally {
+    process.cwd = originalCwd;
+    fs.rmSync(tmpDir, { recursive: true });
+  }
+});
+
+test('5-char value does NOT trigger false positive (C1)', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-c1-short-'));
+  fs.writeFileSync(path.join(tmpDir, '.env'), 'DEBUG=true\nPORT=3000\n');
+
+  const originalCwd = process.cwd;
+  process.cwd = () => tmpDir;
+
+  try {
+    const km = new KeychainManager();
+
+    const worktreeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-c1-clean-'));
+    fs.writeFileSync(path.join(worktreeDir, 'config.py'), "DEBUG = True\nPORT = 3000");
+
+    const clean = (km as any).scanForLeaks(worktreeDir);
+    expect(clean).toBe(true); // short values should not trigger
+
+    fs.rmSync(worktreeDir, { recursive: true });
+  } finally {
+    process.cwd = originalCwd;
+    fs.rmSync(tmpDir, { recursive: true });
+  }
+});
+
+test('secrets loaded from encrypted vault are detected by scanForLeaks (C1)', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-c1-vault-'));
+  const originalCwd = process.cwd;
+  const originalEnv = process.env.VAULT_MASTER_PASSWORD;
+
+  process.cwd = () => tmpDir;
+
+  try {
+    // Create vault with a 12-char secret
+    const km1 = new KeychainManager();
+    km1.initVault('test-password', { SHORT_SECRET: 'secret12char' });
+
+    // Reload with password
+    process.env.VAULT_MASTER_PASSWORD = 'test-password';
+    const km2 = new KeychainManager();
+
+    // Write a file that leaks the secret
+    const worktreeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-c1-vault-leak-'));
+    fs.writeFileSync(path.join(worktreeDir, 'leaked.py'), "API_KEY = 'secret12char'");
+
+    const clean = (km2 as any).scanForLeaks(worktreeDir);
+    expect(clean).toBe(false); // should detect the leaked vault secret
+
+    fs.rmSync(worktreeDir, { recursive: true });
+  } finally {
+    process.cwd = originalCwd;
+    if (originalEnv !== undefined) process.env.VAULT_MASTER_PASSWORD = originalEnv;
+    else delete process.env.VAULT_MASTER_PASSWORD;
+    fs.rmSync(tmpDir, { recursive: true });
+  }
+});

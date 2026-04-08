@@ -69,15 +69,19 @@ Rules for timeoutMinutes:
 - Complex tasks: 60`;
 
 export class BrainPlanner {
+  private readonly anthropic: Anthropic;
+
+  constructor(anthropic?: Anthropic) {
+    this.anthropic = anthropic ?? new Anthropic();
+  }
+
   /**
    * PLAN — produces a structured MissionBrief from a task objective.
    * MVP: Direct Claude API call using Haiku (cheap routing task).
    * Future: Sequential Thinking MCP pass before any Mission Brief.
    */
   public async plan(taskObjective: string, taskId: string): Promise<ThinkingResult> {
-    const client = new Anthropic();
-
-    const msg = await client.messages.create({
+    const msg = await this.anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 512,
       system: PLANNING_SYSTEM_PROMPT,

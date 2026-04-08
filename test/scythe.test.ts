@@ -151,3 +151,87 @@ test('runFullAuditCycle() updates health.json with delta', async () => {
     restore();
   }
 });
+
+
+// ---------------------------------------------------------------------------
+// C4: WikiScythe confirmation gate tests
+// ---------------------------------------------------------------------------
+
+test('runFullAuditCycle writes to archive-queue.md instead of auto-archiving', async () => {
+  const { tmpDir, restore } = setupTmpCwd();
+  try {
+    // Create wiki directory with a fake old page
+    const wikiDir = path.join(tmpDir, 'wiki');
+    fs.mkdirSync(wikiDir, { recursive: true });
+    fs.writeFileSync(path.join(wikiDir, 'old-page.md'), '# Old Content');
+
+    const report: AuditReport = {
+      contradictions: [],
+      orphan_pages: [],
+      stale_entries: [],
+      timestamp: new Date().toISOString(),
+    };
+
+    const mockMemory = createMockMemory(report);
+    const scythe = new WikiScythe(mockMemory);
+
+    // Mock getGitMtime to return old date
+    (scythe as any).getGitMtime = () => new Date('2025-01-01');
+    await scythe.runFullAuditCycle();
+
+    // archive-queue.md should exist with the page listed
+    const queuePath = path.join(wikiDir, 'archive-queue.md');
+    expect(fs.existsSync(queuePath)).toBe(true);
+    const content = fs.readFileSync(queuePath, 'utf-8');
+    expect(content).toContain('old-page.md');
+    expect(content).toContain('[ ]'); // unchecked
+
+    // The page should NOT be in archive/
+    const archivePath = path.join(wikiDir, 'archive', 'old-page.md');
+    expect(fs.existsSync(archivePath)).toBe(false);
+
+    // The original page should still exist
+    expect(fs.existsSync(path.join(wikiDir, 'old-page.md'))).toBe(true);
+  } finally {
+    restore();
+  }
+});
+
+test('processArchiveQueue only moves [x] marked items', () => {
+  const { tmpDir, restore } = setupTmpCwd();
+  try {
+    const wikiDir = path.join(tmpDir, 'wiki');
+    fs.mkdirSync(wikiDir, { recursive: true });
+    fs.writeFileSync(path.join(wikiDir, 'approved.md'), '# Approved for archival');
+    fs.writeFileSync(path.join(wikiDir, 'pending.md'), '# Not yet approved');
+
+    // Write archive-queue.md with one approved and one pending
+    const queuePath = path.join(wikiDir, 'archive-queue.md');
+    fs.writeFileSync(queuePath,
+      '- [x] approved.md (last modified: 2025-01-01T00:00:00Z, age: 365d)\n' +
+      '- [ ] pending.md (last modified: 2025-06-01T00:00:00Z, age: 180d)\n'
+    );
+
+    const report: AuditReport = {
+      contradictions: [], orphan_pages: [], stale_entries: [],
+      timestamp: new Date().toISOString(),
+    };
+    const mockMemory = createMockMemory(report);
+    const scythe = new WikiScythe(mockMemory);
+
+    const archived = scythe.processArchiveQueue();
+
+    // Only approved.md should be archived
+    expect(archived).toBe(1);
+    expect(fs.existsSync(path.join(wikiDir, 'archive', 'approved.md'))).toBe(true);
+    expect(fs.existsSync(path.join(wikiDir, 'approved.md'))).toBe(false);
+
+    // pending.md should still exist and be in queue
+    expect(fs.existsSync(path.join(wikiDir, 'pending.md'))).toBe(true);
+    const remaining = fs.readFileSync(queuePath, 'utf-8');
+    expect(remaining).toContain('pending.md');
+    expect(remaining).not.toContain('approved.md');
+  } finally {
+    restore();
+  }
+});

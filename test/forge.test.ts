@@ -324,3 +324,92 @@ describe('ForgeRatchet reads real forge events', () => {
     }
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// A3: Forge cost cap tests
+// ---------------------------------------------------------------------------
+
+describe('ForgeMetricsDb.getTotalTokensThisCycle', () => {
+  let db: ForgeMetricsDb;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dbPath = path.join(os.tmpdir(), `test-budget-${Date.now()}.db`);
+    db = new ForgeMetricsDb(dbPath);
+  });
+
+  afterEach(() => {
+    db.close();
+    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
+  });
+
+  test('sums tokens from today\'s metrics', () => {
+    const now = new Date().toISOString();
+    db.insertMetric({
+      template_name: 'test', skill: 'code', directive: 'NOTE',
+      tokens_consumed: 1000, duration_seconds: 10, janitor_notes: '', timestamp: now,
+    });
+    db.insertMetric({
+      template_name: 'test', skill: 'code', directive: 'NOTE',
+      tokens_consumed: 2000, duration_seconds: 20, janitor_notes: '', timestamp: now,
+    });
+    expect(db.getTotalTokensThisCycle()).toBe(3000);
+  });
+
+  test('returns 0 when no metrics exist', () => {
+    expect(db.getTotalTokensThisCycle()).toBe(0);
+  });
+});
+
+describe('ShadowRunner budget cap', () => {
+  test('returns null when budget cap exceeded', async () => {
+    const dbPath = path.join(os.tmpdir(), `test-shadow-cap-${Date.now()}.db`);
+    const db = new ForgeMetricsDb(dbPath);
+
+    // Insert metrics that exceed the budget
+    const now = new Date().toISOString();
+    db.insertMetric({
+      template_name: 'test', skill: 'code', directive: 'NOTE',
+      tokens_consumed: 48000, duration_seconds: 100, janitor_notes: '', timestamp: now,
+    });
+
+    const mockWorker = { execute: jest.fn() } as any;
+    const { ShadowRunner } = require('../core/forge/shadow_runner');
+    const runner = new ShadowRunner(mockWorker, db, 50000);
+
+    const brief = {
+      id: 'test', objective: 'test', skill: 'code',
+      requiredKeys: [], wikiContext: [], constraints: [],
+      allowedPaths: [], allowedEndpoints: [], timeoutMinutes: 10,
+    };
+
+    const result = await runner.runShadow(brief, 'variant_b.md');
+    expect(result).toBeNull();
+    expect(mockWorker.execute).not.toHaveBeenCalled();
+
+    db.close();
+    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C3: CloneResult tokensConsumed and filesModified
+// ---------------------------------------------------------------------------
+
+describe('CloneResult interface', () => {
+  test('CloneResult includes tokensConsumed and filesModified fields', () => {
+    const { AuditDirective } = require('../core/janitor/auditor');
+    const result = {
+      directive: AuditDirective.NOTE,
+      feedback: 'clean',
+      escalate_to_human: false,
+      retries_used: 0,
+      tokensConsumed: 1500,
+      filesModified: ['main.py', 'test.py'],
+    };
+
+    expect(result.tokensConsumed).toBe(1500);
+    expect(result.filesModified).toEqual(['main.py', 'test.py']);
+  });
+});

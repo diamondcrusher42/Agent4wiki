@@ -3,8 +3,14 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { CloneWorker } from '../clones/clone_worker';
+import { CloneWorker, CloneResult } from '../clones/clone_worker';
 import { MissionBrief } from '../brain/planner';
+import { ForgeMetricsDb } from './metrics_db';
+
+/** Default budget cap: 50000 tokens per daily cycle */
+const DEFAULT_MAX_SHADOW_BUDGET_TOKENS = 50000;
+/** Estimated tokens per shadow run (conservative) */
+const ESTIMATED_TOKENS_PER_RUN = 5000;
 
 export interface ShadowResult {
   variant: 'A' | 'B';
@@ -19,13 +25,30 @@ export interface ShadowResult {
 }
 
 export class ShadowRunner {
-  constructor(private cloneWorker: CloneWorker) {}
+  private maxBudgetTokens: number;
+
+  constructor(
+    private cloneWorker: CloneWorker,
+    private metricsDb?: ForgeMetricsDb,
+    maxBudgetTokens?: number,
+  ) {
+    this.maxBudgetTokens = maxBudgetTokens ?? DEFAULT_MAX_SHADOW_BUDGET_TOKENS;
+  }
 
   /**
    * RUN SHADOW — spawns Variant B in background, returns its result.
-   * Does not affect production execution.
+   * Returns null if budget cap is exceeded (evaluator treats null as skip).
    */
-  public async runShadow(brief: MissionBrief, variantBTemplatePath: string): Promise<ShadowResult> {
+  public async runShadow(brief: MissionBrief, variantBTemplatePath: string): Promise<ShadowResult | null> {
+    // A3: Check budget before launching variant B
+    if (this.metricsDb) {
+      const currentSpend = this.metricsDb.getTotalTokensThisCycle();
+      if (currentSpend + ESTIMATED_TOKENS_PER_RUN > this.maxBudgetTokens) {
+        console.warn(`[FORGE] Budget cap reached (${currentSpend} tokens). Skipping shadow run.`);
+        return null;
+      }
+    }
+
     // Deep clone the brief, override templatePath
     const shadowBrief: MissionBrief = JSON.parse(JSON.stringify(brief));
     const shadowId = `shadow-${brief.id}-${Date.now()}`;
@@ -33,7 +56,7 @@ export class ShadowRunner {
     const startTime = Date.now();
 
     // Run via CloneWorker — full lifecycle
-    const result = await this.cloneWorker.execute(
+    const result: CloneResult = await this.cloneWorker.execute(
       shadowBrief,
       {
         skill: 'code',
@@ -50,11 +73,11 @@ export class ShadowRunner {
       variant: 'B',
       taskId: shadowId,
       directive: result.directive,
-      tokensConsumed: (result as any).tokensConsumed || 0,
+      tokensConsumed: result.tokensConsumed,
       durationSeconds,
       janitorNotes: result.feedback,
       templatePath: variantBTemplatePath,
-      filesModified: (result as any).filesModified || [],
+      filesModified: result.filesModified,
     };
 
     // Write result to forge/events.jsonl

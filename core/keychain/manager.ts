@@ -88,8 +88,8 @@ export class KeychainManager {
    * ADD SECRET — decrypts vault, adds key, re-encrypts and saves.
    */
   public addSecret(key: string, value: string): void {
-    if (value.length < 17) {
-      console.warn(`[KEYCHAIN] Secret "${key}" is shorter than 17 chars — adding to exactMatchSecrets`);
+    if (value.length < 8) {
+      console.warn(`[KEYCHAIN] Secret "${key}" is shorter than 8 chars — too short for leak detection`);
       this.exactMatchSecrets.push(value);
     }
 
@@ -235,7 +235,7 @@ export class KeychainManager {
     }
 
     // Collect vault values for exact-match check — >16 chars only to avoid false positives
-    const vaultValues = Object.values(this.masterVault).filter(v => v.length > 16);
+    const vaultValues = Object.values(this.masterVault).filter(v => v.length >= 8);
     // Also include short secrets that were explicitly added
     const allExactValues = [...vaultValues, ...this.exactMatchSecrets];
 
@@ -334,6 +334,12 @@ export class KeychainManager {
           const vaultData = JSON.parse(fs.readFileSync(encPath, 'utf-8'));
           const secrets = this.decryptVaultData(vaultData, key);
           console.log(`[KEYCHAIN] Loaded ${Object.keys(secrets).length} keys from encrypted vault`);
+          // C1: Populate exactMatchSecrets for leak detection
+          for (const [k, v] of Object.entries(secrets)) {
+            if (v.length >= 8) {
+              this.exactMatchSecrets.push(v);
+            }
+          }
           return secrets;
         } catch (err) {
           throw new Error(`[KEYCHAIN] Failed to decrypt vault — wrong password or corrupted file: ${err}`);
@@ -356,6 +362,12 @@ export class KeychainManager {
         vault[key] = value;
       }
       console.log(`[KEYCHAIN] Loaded ${Object.keys(vault).length} keys from .env`);
+      // C1: Populate exactMatchSecrets for leak detection
+      for (const [k, v] of Object.entries(vault)) {
+        if (v.length >= 8) {
+          this.exactMatchSecrets.push(v);
+        }
+      }
     } catch {
       console.warn('[KEYCHAIN] No .env file found — vault is empty. Clone launches will fail.');
     }

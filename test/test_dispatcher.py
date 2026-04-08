@@ -322,3 +322,40 @@ def test_read_handshake_file_missing(tmp_path, monkeypatch):
 
     result = read_handshake_file("nonexistent-task")
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# A2: Unified heuristics tests
+# ---------------------------------------------------------------------------
+
+def test_janitor_evaluate_temporary_keyword():
+    """Both Python and TS should catch 'temporary' from shared heuristics."""
+    h = {
+        "status": "COMPLETED",
+        "tests_passed": True,
+        "files_modified": ["main.py"],
+        "janitor_notes": "This is a temporary workaround",
+    }
+    assert janitor_evaluate(h, 0, "t-heur") == "SUGGEST"
+
+
+def test_janitor_evaluate_fixme_keyword():
+    """fixme is in the shared heuristics list."""
+    h = {
+        "status": "COMPLETED",
+        "tests_passed": True,
+        "files_modified": ["main.py"],
+        "janitor_notes": "fixme: needs proper error handling",
+    }
+    assert janitor_evaluate(h, 0, "t-fixme") == "SUGGEST"
+
+
+def test_janitor_evaluate_clean_passes():
+    """Clean notes should still return NOTE."""
+    h = {
+        "status": "COMPLETED",
+        "tests_passed": True,
+        "files_modified": ["main.py"],
+        "janitor_notes": "Implementation complete. All tests passing.",
+    }
+    assert janitor_evaluate(h, 0, "t-clean") == "NOTE"

@@ -62,6 +62,20 @@ export class ForgeMetricsDb {
       .run(templateName, outcome, new Date().toISOString());
   }
 
+  /**
+   * A3: Sum tokens consumed in the current cycle (since midnight UTC today).
+   */
+  public getTotalTokensThisCycle(): number {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const cycleStart = today.toISOString();
+
+    const row = this.db.prepare(
+      `SELECT COALESCE(SUM(tokens_consumed), 0) as total FROM metrics WHERE timestamp >= ?`
+    ).get(cycleStart) as { total: number };
+    return row.total;
+  }
+
   public close(): void {
     this.db.close();
   }

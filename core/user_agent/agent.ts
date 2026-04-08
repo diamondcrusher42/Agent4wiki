@@ -27,16 +27,17 @@ export class UserAgent {
   private classifier: ComplexityClassifier;
   private planner: BrainPlanner;
   private anthropic: Anthropic;
-  private conversationHistory: any[];  // Raw turns — compressed by Summary Pipeline
+  private conversationHistory: Array<{role: string; content: string; timestamp: string}>;
   private state: UserAgentState;
   private directCount = 0; // Track DIRECT interactions for flushState trigger
   private readonly MAX_HISTORY_ENTRIES = 50;
   private readonly TOKEN_FLUSH_THRESHOLD = 4000; // estimated tokens (~4 chars per token)
+  private soulContent: string | null = null; // Cached soul.md content (C2)
 
   constructor(anthropicClient?: Anthropic) {
-    this.classifier = new ComplexityClassifier();
-    this.planner = new BrainPlanner();
     this.anthropic = anthropicClient || new Anthropic();
+    this.classifier = new ComplexityClassifier(this.anthropic);
+    this.planner = new BrainPlanner(this.anthropic);
     this.conversationHistory = [];
     this.state = this.loadState();
   }
@@ -48,7 +49,7 @@ export class UserAgent {
   public async handleUserInput(prompt: string): Promise<string> {
     console.log(`[USER AGENT] Received prompt. Classifying...`);
 
-    const complexity = this.classifier.classify(prompt);
+    const complexity = await this.classifier.classify(prompt);
     console.log(`[ROUTING] Task classified as: ${complexity}`);
 
     this.conversationHistory.push({ role: 'user', content: prompt, timestamp: new Date().toISOString() });
@@ -66,6 +67,7 @@ export class UserAgent {
       await this.flushState();
     }
 
+    let response: string;
     switch (complexity) {
       case TaskComplexity.DIRECT:
         this.directCount++;
@@ -73,25 +75,39 @@ export class UserAgent {
         if (this.directCount % 5 === 0) {
           await this.flushState();
         }
-        return await this.executeDirect(prompt);
+        response = await this.executeDirect(prompt);
+        break;
 
       case TaskComplexity.BRAIN_ONLY:
-        return await this.routeToBrain(prompt);
+        response = await this.routeToBrain(prompt);
+        break;
 
       case TaskComplexity.FULL_PIPELINE:
         // Always flush state on FULL_PIPELINE
         await this.flushState();
-        return await this.triggerFullPipeline(prompt);
+        response = await this.triggerFullPipeline(prompt);
+        break;
     }
+
+    this.conversationHistory.push({ role: 'assistant', content: response, timestamp: new Date().toISOString() });
+    return response;
   }
 
+  /**
+   * DIRECT — fast path with Soul.md personality and conversation history (C2).
+   */
   private async executeDirect(prompt: string): Promise<string> {
     try {
+      const soul = this.loadSoul();
+      const history = this.conversationHistory.slice(-10).map(h => ({
+        role: h.role as 'user' | 'assistant',
+        content: h.content,
+      }));
       const response = await this.anthropic.messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 1024,
-        system: 'You are a helpful assistant. Answer directly and concisely.',
-        messages: [{ role: 'user', content: prompt }],
+        system: soul || 'You are a helpful assistant. Answer directly and concisely.',
+        messages: [...history, { role: 'user', content: prompt }],
       });
       return response.content
         .filter((b): b is Anthropic.TextBlock => b.type === 'text')
@@ -99,17 +115,34 @@ export class UserAgent {
         .join('');
     } catch (err) {
       console.error(`[USER AGENT] executeDirect failed: ${err}`);
-      return `Error: Could not generate response.`;
+      return `I encountered an error processing your request: ${(err as Error).message}. Please try again.`;
     }
   }
 
+  /**
+   * BRAIN_ONLY — run planner then use reasoning as context for a proper answer (C2).
+   */
   private async routeToBrain(prompt: string): Promise<string> {
     try {
       const planning = await this.planner.plan(prompt, `brain-${Date.now()}`);
-      return planning.reasoning.join('\n');
+
+      // Use the plan's reasoning as context to produce a proper answer
+      const soul = this.loadSoul();
+      const contextPrompt = `The user asked: "${prompt}"\n\nYour planning analysis:\n${planning.reasoning.join('\n')}\n\nNow provide a clear, helpful answer to the user's question based on this analysis.`;
+
+      const response = await this.anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        system: soul || 'You are a helpful assistant. Provide clear, well-reasoned answers.',
+        messages: [{ role: 'user', content: contextPrompt }],
+      });
+      return response.content
+        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+        .map(b => b.text)
+        .join('');
     } catch (err) {
       console.error(`[USER AGENT] routeToBrain failed: ${err}`);
-      return `Error: Brain planning failed.`;
+      return `I encountered an error processing your request: ${(err as Error).message}. Please try again.`;
     }
   }
 
@@ -118,39 +151,102 @@ export class UserAgent {
    * This is the TS→Python bridge: UserAgent writes, dispatcher.py reads.
    */
   private async triggerFullPipeline(prompt: string): Promise<string> {
-    const taskId = `task-${crypto.randomUUID().slice(0, 8)}`;
+    try {
+      const taskId = `task-${crypto.randomUUID().slice(0, 8)}`;
 
-    const planning = await this.planner.plan(prompt, taskId);
+      const planning = await this.planner.plan(prompt, taskId);
 
-    const task = {
-      id: taskId,
-      type: 'clone',
-      skill: planning.brief.skill,
-      objective: planning.brief.objective,
-      source: 'user_agent',
-      priority: 2,
-      required_keys: planning.brief.requiredKeys,
-      wiki_pages: planning.brief.wikiContext,
-      constraints: planning.brief.constraints,
-      timeout_minutes: planning.brief.timeoutMinutes,
-      created_at: new Date().toISOString(),
-    };
+      const task = {
+        id: taskId,
+        type: 'clone',
+        skill: planning.brief.skill,
+        objective: planning.brief.objective,
+        source: 'user_agent',
+        priority: 2,
+        required_keys: planning.brief.requiredKeys,
+        wiki_pages: planning.brief.wikiContext,
+        constraints: planning.brief.constraints,
+        timeout_minutes: planning.brief.timeoutMinutes,
+        created_at: new Date().toISOString(),
+      };
 
-    const inboxDir = path.join(
+      const inboxDir = path.join(
+        process.env.AGENT_BASE_DIR || process.cwd(),
+        'brain', 'inbox'
+      );
+      await fs.promises.mkdir(inboxDir, { recursive: true });
+
+      const inboxPath = path.join(inboxDir, `${taskId}.json`);
+      await fs.promises.writeFile(inboxPath, JSON.stringify(task, null, 2));
+
+      // Track active task
+      this.state.active_worktrees.push(taskId);
+      this.state.current_intent = prompt.slice(0, 200);
+
+      console.log(`[USER AGENT] Task ${taskId} → brain/inbox/`);
+      return `Task queued: ${taskId}. Dispatcher will pick it up and report results.`;
+    } catch (err) {
+      console.error('[USER_AGENT] Pipeline error:', err);
+      return `I encountered an error processing your request: ${(err as Error).message}. Please try again.`;
+    }
+  }
+
+  /**
+   * PRUNE COMPLETED — remove completed task IDs from active_worktrees (B1).
+   */
+  public pruneCompleted(taskId: string): void {
+    this.state.active_worktrees = this.state.active_worktrees.filter(id => id !== taskId);
+    this.saveState();
+  }
+
+  /**
+   * STARTUP CLEANUP — remove stale worktree IDs not in registry (B1).
+   */
+  public cleanupStaleWorktrees(): void {
+    const registryPath = path.join(
       process.env.AGENT_BASE_DIR || process.cwd(),
-      'brain', 'inbox'
+      'state', 'worktrees', 'registry.json'
     );
-    await fs.promises.mkdir(inboxDir, { recursive: true });
+    let registeredIds: string[] = [];
+    try {
+      const data = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
+      registeredIds = Array.isArray(data) ? data.map((e: any) => e.id || e.taskId || '') : [];
+    } catch {
+      // No registry file — clear all
+    }
+    const before = this.state.active_worktrees.length;
+    this.state.active_worktrees = this.state.active_worktrees.filter(id => registeredIds.includes(id));
+    if (this.state.active_worktrees.length < before) {
+      console.log(`[USER AGENT] Startup cleanup: removed ${before - this.state.active_worktrees.length} stale worktree IDs`);
+      this.saveState();
+    }
+  }
 
-    const inboxPath = path.join(inboxDir, `${taskId}.json`);
-    await fs.promises.writeFile(inboxPath, JSON.stringify(task, null, 2));
+  /**
+   * Load Soul.md content (cached). Used as system prompt for executeDirect and routeToBrain.
+   */
+  private loadSoul(): string {
+    if (this.soulContent !== null) return this.soulContent;
 
-    // Track active task
-    this.state.active_worktrees.push(taskId);
-    this.state.current_intent = prompt.slice(0, 200);
+    const baseDir = process.env.AGENT_BASE_DIR || process.cwd();
+    let content = '';
+    const soulPath = path.join(baseDir, 'wiki', 'Soul.md');
+    const soulPrivatePath = path.join(baseDir, 'wiki', 'soul-private.md');
 
-    console.log(`[USER AGENT] Task ${taskId} → brain/inbox/`);
-    return `Task queued: ${taskId}. Dispatcher will pick it up and report results.`;
+    try {
+      if (fs.existsSync(soulPath)) {
+        content += fs.readFileSync(soulPath, 'utf-8');
+      }
+    } catch { /* soul.md missing is fine */ }
+
+    try {
+      if (fs.existsSync(soulPrivatePath)) {
+        content += '\n\n' + fs.readFileSync(soulPrivatePath, 'utf-8');
+      }
+    } catch { /* soul-private.md missing is fine */ }
+
+    this.soulContent = content.trim();
+    return this.soulContent;
   }
 
   /**

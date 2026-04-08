@@ -43,6 +43,16 @@ export interface ForgeRecord {
 
 const FORGE_EVENTS_PATH = process.env.FORGE_EVENTS_PATH || './forge/events.jsonl';
 
+// A2: Load warn_keywords from shared config
+const HEURISTICS_PATH = path.join(__dirname, 'config', 'heuristics.json');
+let WARN_KEYWORDS: string[] = ['todo:', 'hacky', 'tech debt', 'temporary', 'fragile', 'slow', 'fixme', 'workaround'];
+try {
+  const heuristics = JSON.parse(fs.readFileSync(HEURISTICS_PATH, 'utf-8'));
+  WARN_KEYWORDS = heuristics.warn_keywords;
+} catch {
+  console.warn('[JANITOR] Could not load heuristics.json — using built-in defaults');
+}
+
 export class Janitor {
   private maxRetries = 3; // Circuit breaker threshold
 
@@ -155,9 +165,9 @@ export class Janitor {
       return `PERFORMANCE CONCERN flagged in notes: "${notes}". Address before merging to avoid Forge regression.`;
     }
 
-    // Legacy semantic check for explicit quality admissions
+    // A2: Unified warn_keywords from heuristics.json (replaces old hardcoded list)
     const lowered = notes.toLowerCase();
-    if (['hacky', 'tech debt', 'fragile', 'temporary'].some(kw => lowered.includes(kw))) {
+    if (WARN_KEYWORDS.some(kw => lowered.includes(kw))) {
       return `QUALITY ADMISSION in notes: "${notes}". Refactor before merging.`;
     }
 

@@ -38,6 +38,8 @@ export interface CloneResult {
   feedback: string;
   escalate_to_human: boolean;
   retries_used: number;
+  tokensConsumed: number;     // C3: populated from handshake
+  filesModified: string[];    // C3: populated from handshake
 }
 
 export class CloneWorker {
@@ -67,6 +69,7 @@ export class CloneWorker {
   ): Promise<CloneResult> {
     let retries = 0;
     let lastFeedback = '';
+    let lastHandshake: HandshakeResult | null = null;
 
     while (retries < 3) {
       const cloneId = `${taskId}-r${retries}`;
@@ -94,6 +97,8 @@ export class CloneWorker {
         }
       }
 
+      lastHandshake = handshake;
+
       // A3: If credentials leaked, force BLOCK immediately — do not evaluate mission
       if (!noLeaks) {
         await this.teardown.teardown(handle, AuditDirective.BLOCK);
@@ -102,6 +107,8 @@ export class CloneWorker {
           feedback: 'SECURITY HALT: Credential leak detected in worktree after revoke. Task output discarded.',
           escalate_to_human: true,
           retries_used: retries,
+          tokensConsumed: handshake.tokens_consumed || 0,
+          filesModified: handshake.files_modified || [],
         };
       }
 
@@ -113,7 +120,9 @@ export class CloneWorker {
           directive: audit.directive,
           feedback: audit.feedback,
           escalate_to_human: audit.escalate_to_human,
-          retries_used: retries
+          retries_used: retries,
+          tokensConsumed: handshake.tokens_consumed || 0,
+          filesModified: handshake.files_modified || [],
         };
       }
 
@@ -128,7 +137,9 @@ export class CloneWorker {
       directive: AuditDirective.BLOCK,
       feedback: 'Max retries exceeded',
       escalate_to_human: true,
-      retries_used: retries
+      retries_used: retries,
+      tokensConsumed: lastHandshake?.tokens_consumed || 0,
+      filesModified: lastHandshake?.files_modified || [],
     };
   }
 }

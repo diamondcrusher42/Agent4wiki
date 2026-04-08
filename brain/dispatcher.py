@@ -53,6 +53,14 @@ from bridge import get_bridge, BridgeError
 # Configuration
 # ---------------------------------------------------------------------------
 
+# A2: Load warn_keywords from shared heuristics config
+_HEURISTICS_PATH = Path(__file__).parent.parent / 'core' / 'janitor' / 'config' / 'heuristics.json'
+try:
+    import json as _json_h
+    WARN_KEYWORDS = _json_h.load(open(_HEURISTICS_PATH))['warn_keywords']
+except (FileNotFoundError, KeyError, json.JSONDecodeError):
+    WARN_KEYWORDS = ['todo:', 'hacky', 'tech debt', 'temporary', 'fragile', 'slow', 'fixme', 'workaround']
+
 BASE_DIR = Path(os.environ.get("AGENT_BASE_DIR", Path(__file__).parent.parent.resolve()))
 INBOX     = BASE_DIR / "brain" / "inbox"
 ACTIVE    = BASE_DIR / "brain" / "active"
@@ -607,7 +615,7 @@ def janitor_evaluate(handshake: dict, retry_count: int, task_id: str) -> str:
             log.warning(f"[JANITOR] MISSING TESTS or tests failed in {task_id}")
             return "SUGGEST"
 
-        if any(kw in notes for kw in ["hacky", "tech debt", "todo:", "fragile", "slow"]):
+        if any(kw in notes for kw in WARN_KEYWORDS):
             log.warning(f"[JANITOR] ARCHITECTURAL SMELL in {task_id}: {notes[:100]}")
             return "SUGGEST"
 
