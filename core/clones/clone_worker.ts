@@ -17,7 +17,7 @@ import { PromptBuilder } from '../brain/prompt_builder';
 import { MissionBrief } from '../brain/planner';
 import cloneConfig from '../config/clone_config.json';
 
-const REQUIRED_ENV_KEYS = ['PATH', 'HOME', 'NODE_ENV', 'TMPDIR', 'LANG', 'LC_ALL'];
+const REQUIRED_ENV_KEYS = ['PATH', 'HOME', 'NODE_ENV', 'TMPDIR', 'LANG', 'LC_ALL', 'SHELL', 'USER'];
 
 export function buildCloneEnv(scopedEnv: Record<string, string> = {}): Record<string, string> {
   const env: Record<string, string> = {};

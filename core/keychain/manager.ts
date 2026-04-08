@@ -263,6 +263,19 @@ export class KeychainManager {
       const ext = path.extname(resolved).toLowerCase();
       if (KeychainManager.BINARY_EXTENSIONS.has(ext)) continue;
 
+      // A4: Symlink boundary check — skip files that resolve outside worktree
+      try {
+        const realPath = fs.realpathSync(resolved);
+        const resolvedWorktree = path.resolve(worktreePath);
+        if (!realPath.startsWith(resolvedWorktree + path.sep) && realPath !== resolvedWorktree) {
+          skippedFiles.push(`SYMLINK_ESCAPE: ${rel}`);
+          continue;
+        }
+      } catch {
+        // realpathSync throws if file doesn't exist — skip
+        continue;
+      }
+
       // A3: Skip files larger than 1MB to prevent OOM — track for manual review
       try {
         const stat = fs.statSync(resolved);
@@ -307,12 +320,20 @@ export class KeychainManager {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
       });
-      // Parse lines: "?? newfile.ts", " M modified.ts", "A  staged.ts"
-      return output.split('\n')
+      // Parse lines: "?? newfile.ts", " M modified.ts", "A  staged.ts", "R  old -> new"
+      const files = output.split('\n')
         .filter(line => line.trim().length > 0)
-        .map(line => line.slice(3).trim())
-        .filter(f => f.length > 0)
-        .map((f: string) => path.join(worktreePath, f));
+        .flatMap(line => {
+          const status = line.slice(0, 2).trim();
+          const rest = line.slice(3).trim();
+          if (status === 'R' || status === 'RM') {
+            const arrowIdx = rest.indexOf(' -> ');
+            return arrowIdx >= 0 ? [rest.slice(arrowIdx + 4)] : [rest];
+          }
+          return [rest];
+        })
+        .filter(f => f.length > 0);
+      return files.map((f: string) => path.join(worktreePath, f));
     } catch {
       return this.getAllFiles(worktreePath);
     }

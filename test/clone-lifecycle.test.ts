@@ -380,3 +380,33 @@ describe('CloneSpawner cloneId validation (B1)', () => {
     await expect(spawner.createWorktree('../traversal', 'code')).rejects.toThrow('Invalid cloneId');
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// A3: SHELL and USER in REQUIRED_ENV_KEYS (plan-build-v8)
+// ---------------------------------------------------------------------------
+
+describe('buildCloneEnv includes SHELL and USER (A3)', () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    for (const [key, val] of Object.entries(originalEnv)) {
+      process.env[key] = val;
+    }
+  });
+
+  test('includes SHELL if set on host', () => {
+    process.env.SHELL = '/bin/bash';
+    const env = buildCloneEnv();
+    expect(env['SHELL']).toBe('/bin/bash');
+  });
+
+  test('includes USER if set on host', () => {
+    process.env.USER = 'testuser';
+    const env = buildCloneEnv();
+    expect(env['USER']).toBe('testuser');
+  });
+});

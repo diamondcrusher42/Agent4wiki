@@ -608,17 +608,67 @@ def extract_handshake(output: str) -> Optional[dict]:
 
 def janitor_evaluate(handshake: dict, retry_count: int, task_id: str) -> str:
     """
-    Minimal Python-side Janitor evaluation.
+    Python-side Janitor evaluation — aligned exactly with auditor.ts decision tree.
     Returns: "NOTE" | "SUGGEST" | "BLOCK"
 
-    The full Janitor (core/janitor/auditor.ts) will be called via
-    npx ts-node once the TypeScript lifecycle is wired up. This is the MVP bridge.
+    Decision order (matches auditor.ts evaluateMission):
+    1. Circuit breaker (retries >= MAX_RETRIES) -> BLOCK
+    2. BLOCKED_IMPOSSIBLE -> BLOCK
+    3. tests_passed === false -> BLOCK (regardless of status)
+    4. FAILED_REQUIRE_HUMAN -> BLOCK
+    5. Structural checks -> SUGGEST
+    6. COMPLETED clean -> NOTE
+    7. FAILED_RETRY (retries left) -> SUGGEST
+    8. Fallback -> BLOCK
     """
     status = handshake.get("status", "FAILED_REQUIRE_HUMAN")
 
-    # Circuit breaker
+    # 1. Circuit breaker
     if retry_count >= MAX_RETRIES:
         return "BLOCK"
+
+    # 2. BLOCKED_IMPOSSIBLE — before any status-specific branching
+    if status == "BLOCKED_IMPOSSIBLE":
+        return "BLOCK"
+
+    # 3. tests_passed === false -> BLOCK (matches auditor.ts priority)
+    if handshake.get("tests_passed") is False:
+        return "BLOCK"
+
+    # 4. FAILED_REQUIRE_HUMAN
+    if status == "FAILED_REQUIRE_HUMAN":
+        return "BLOCK"
+
+    # 5-6. COMPLETED path — structural checks then NOTE
+    if status == "COMPLETED":
+        notes = handshake.get("janitor_notes", "").lower()
+        files = handshake.get("files_modified", [])
+
+        # Structural checks (mirror of auditor.ts detectStructuralIssue)
+        if len(files) > 5 and re.search(r"also fixed|while i was at it|out of scope", notes):
+            log.warning(f"[JANITOR] SCOPE CREEP detected in {task_id}")
+            return "SUGGEST"
+
+        # Shared config mutation
+        shared_configs = [f for f in files if re.search(r"(tsconfig|package\.json|\.gitignore|CLAUDE\.md|\.env\.example)", f)]
+        if shared_configs:
+            return "SUGGEST"
+
+        # Performance concern
+        if re.search(r"(slow|O\(n..\)|timeout|perf|bottleneck)", notes, re.IGNORECASE):
+            return "SUGGEST"
+
+        if any(kw in notes for kw in WARN_KEYWORDS):
+            log.warning(f"[JANITOR] ARCHITECTURAL SMELL in {task_id}: {notes[:100]}")
+            return "SUGGEST"
+
+        return "NOTE"
+
+    # 7. FAILED_RETRY with retries left
+    if status == "FAILED_RETRY" and retry_count < MAX_RETRIES - 1:
+        return "SUGGEST"
+
+    return "BLOCK"
 
     if status == "BLOCKED_IMPOSSIBLE":
         return "BLOCK"

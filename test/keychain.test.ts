@@ -768,3 +768,112 @@ test('scanForLeaks returns empty largeFilesSkipped when no large files (A4)', ()
     fs.rmSync(vaultDir, { recursive: true });
   }
 });
+
+
+// ---------------------------------------------------------------------------
+// A2: Git status rename parsing (plan-build-v8)
+// ---------------------------------------------------------------------------
+
+describe('getModifiedFiles rename parsing (A2)', () => {
+  test('renamed file appears as NEW filename only', () => {
+    const km = new KeychainManager();
+    // Access private method
+    const getModified = (km as any).getModifiedFiles.bind(km);
+    
+    // Mock execSync to return porcelain output with a rename
+    const origExecSync = require('child_process').execSync;
+    const child_process = require('child_process');
+    const originalFn = child_process.execSync;
+    
+    // We test the parsing logic by creating a tmp git repo with a rename
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-rename-'));
+    try {
+      // Initialize a git repo and create a rename scenario
+      require('child_process').execSync('git init && git config user.email "test@test.com" && git config user.name "test"', { cwd: tmpDir, stdio: 'pipe' });
+      fs.writeFileSync(path.join(tmpDir, 'old-name.ts'), 'content');
+      require('child_process').execSync('git add . && git commit -m "init"', { cwd: tmpDir, stdio: 'pipe' });
+      fs.renameSync(path.join(tmpDir, 'old-name.ts'), path.join(tmpDir, 'new-name.ts'));
+      require('child_process').execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+      
+      const files = getModified(tmpDir);
+      const filenames = files.map((f: string) => path.basename(f));
+      
+      // Should contain new-name.ts, NOT 'old-name.ts -> new-name.ts'
+      expect(filenames).toContain('new-name.ts');
+      expect(filenames.some((f: string) => f.includes(' -> '))).toBe(false);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('modified file still detected after rename fix', () => {
+    const km = new KeychainManager();
+    const getModified = (km as any).getModifiedFiles.bind(km);
+    
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-modified-'));
+    try {
+      require('child_process').execSync('git init && git config user.email "test@test.com" && git config user.name "test"', { cwd: tmpDir, stdio: 'pipe' });
+      fs.writeFileSync(path.join(tmpDir, 'file.ts'), 'original');
+      require('child_process').execSync('git add . && git commit -m "init"', { cwd: tmpDir, stdio: 'pipe' });
+      fs.writeFileSync(path.join(tmpDir, 'file.ts'), 'modified');
+      
+      const files = getModified(tmpDir);
+      const filenames = files.map((f: string) => path.basename(f));
+      expect(filenames).toContain('file.ts');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// A4: Symlink boundary check in scanForLeaks (plan-build-v8)
+// ---------------------------------------------------------------------------
+
+describe('scanForLeaks symlink boundary check (A4)', () => {
+  test('symlink pointing outside worktree is skipped and reported', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-symlink-'));
+    const worktree = path.join(tmpDir, 'worktree');
+    const outside = path.join(tmpDir, 'outside');
+    fs.mkdirSync(worktree, { recursive: true });
+    fs.mkdirSync(outside, { recursive: true });
+    
+    // Create a file outside the worktree
+    fs.writeFileSync(path.join(outside, 'secret.txt'), 'super-secret-value');
+    
+    // Create a symlink inside worktree pointing outside
+    fs.symlinkSync(path.join(outside, 'secret.txt'), path.join(worktree, 'link.txt'));
+    
+    // Initialize git repo so getModifiedFiles works
+    require('child_process').execSync('git init && git config user.email "test@test.com" && git config user.name "test"', { cwd: worktree, stdio: 'pipe' });
+    require('child_process').execSync('git add -A', { cwd: worktree, stdio: 'pipe' });
+    
+    const km = new KeychainManager();
+    const scan = (km as any).scanForLeaks.bind(km);
+    const result = scan(worktree);
+    
+    // The symlink should be reported in largeFilesSkipped (which tracks all skipped files)
+    expect(result.largeFilesSkipped.some((s: string) => s.includes('SYMLINK_ESCAPE'))).toBe(true);
+    
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+
+  test('normal file inside worktree is scanned normally', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-normal-'));
+    fs.writeFileSync(path.join(tmpDir, 'normal.ts'), 'const x = 1;');
+    
+    require('child_process').execSync('git init && git config user.email "test@test.com" && git config user.name "test"', { cwd: tmpDir, stdio: 'pipe' });
+    require('child_process').execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    
+    const km = new KeychainManager();
+    const scan = (km as any).scanForLeaks.bind(km);
+    const result = scan(tmpDir);
+    
+    // Normal file should NOT be in skipped list
+    expect(result.largeFilesSkipped.some((s: string) => s.includes('normal.ts'))).toBe(false);
+    expect(result.clean).toBe(true);
+    
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+});

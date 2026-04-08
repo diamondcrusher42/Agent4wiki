@@ -98,7 +98,8 @@ def test_janitor_evaluate_no_tests():
         "files_modified": ["main.py"],
         "janitor_notes": "done",
     }
-    assert janitor_evaluate(h, 0, "t-001") == "SUGGEST"
+    # A1 fix: tests_passed=False now returns BLOCK (aligned with auditor.ts)
+    assert janitor_evaluate(h, 0, "t-001") == "BLOCK"
 
 
 def test_janitor_evaluate_blocked_impossible():
@@ -128,7 +129,8 @@ def test_janitor_evaluate_failed_retry_first_attempt():
         "tests_passed": False,
         "janitor_notes": "retry me",
     }
-    assert janitor_evaluate(h, 0, "t-001") == "SUGGEST"
+    # A1 fix: tests_passed=False returns BLOCK before FAILED_RETRY check (aligned with auditor.ts)
+    assert janitor_evaluate(h, 0, "t-001") == "BLOCK"
 
 
 def test_janitor_evaluate_failed_retry_last_attempt():
@@ -428,3 +430,53 @@ def test_max_retries_from_shared_config():
     config_path = Path(__file__).parent.parent / 'core' / 'config' / 'clone_config.json'
     config = json.loads(config_path.read_text())
     assert MAX_RETRIES == config['maxRetries']
+
+
+# ---------------------------------------------------------------------------
+# A1: Janitor decision tree alignment with auditor.ts (plan-build-v8)
+# ---------------------------------------------------------------------------
+
+def test_janitor_completed_tests_failed_returns_block():
+    """A1: {status: COMPLETED, tests_passed: false} must return BLOCK, matching auditor.ts."""
+    h = {
+        "status": "COMPLETED",
+        "tests_passed": False,
+        "files_modified": ["a.ts"],
+        "janitor_notes": "done",
+    }
+    assert janitor_evaluate(h, 0, "t-a1-1") == "BLOCK"
+
+
+def test_janitor_blocked_impossible_returns_block():
+    """A1: BLOCKED_IMPOSSIBLE always returns BLOCK."""
+    h = {
+        "status": "BLOCKED_IMPOSSIBLE",
+        "files_modified": [],
+        "tests_passed": False,
+        "janitor_notes": "impossible",
+    }
+    assert janitor_evaluate(h, 0, "t-a1-2") == "BLOCK"
+
+
+def test_janitor_completed_tests_passed_returns_note():
+    """A1: {status: COMPLETED, tests_passed: true} returns NOTE (clean pass)."""
+    h = {
+        "status": "COMPLETED",
+        "tests_passed": True,
+        "files_modified": ["a.ts"],
+        "janitor_notes": "all good",
+    }
+    assert janitor_evaluate(h, 0, "t-a1-3") == "NOTE"
+
+
+def test_janitor_tests_passed_absent_not_suggest():
+    """A1: tests_passed field absent should not produce SUGGEST."""
+    h = {
+        "status": "COMPLETED",
+        "files_modified": ["a.ts"],
+        "janitor_notes": "clean",
+    }
+    # tests_passed absent -> handshake.get("tests_passed") returns None, not False
+    # So it should NOT hit the BLOCK for tests_passed===false, should reach NOTE
+    result = janitor_evaluate(h, 0, "t-a1-4")
+    assert result != "SUGGEST"
