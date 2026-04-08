@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
-> Last updated: 2026-04-08
-> Total pages: 100
+> Last updated: 2026-04-09
+> Total pages: 101
 > Sources ingested: 8 repos/articles + 1 architecture session + 14 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
 
 ## Templates
@@ -117,6 +117,7 @@
 - [[review-gemini-review94]] — Gemini post-v7: Two Brains problem (TS/Python drift), synchronous watch loop (queue blocking), shell injection in runner.ts, quarantine mode missing, context truncation mid-JSON, blind teardown forensic loss.
 - [[plan-build-v8]] — Phase A (Janitor unification, rename parsing, SHELL/USER, symlink guard) + Phase B (watch concurrency, shell safety, config externalization) + Phase C (quarantine mode, line-boundary truncation, method rename). Target: 174 → ~192 tests.
 - [[build-state-2026-04-08-v8]] — Plan-build-v8 complete: 174→198 tests. Janitor decision tree unified (Python mirrors TS), rename parsing, symlink guard, watch() threaded, execFile array form, confidence+wiki config, quarantine mode. opus-build @ 96002ec.
+- [[review-gemini-review95]] — Gemini post-v8: dead code in Python Janitor (botched merge), quarantine EXDEV crash (cross-filesystem renameSync), Python env still blacklist. Also: regex recompilation, MAX_HISTORY_ENTRIES dead code, watchdog race.
 - [[review-skills-playbook]] — V4 Skills Playbook: 28-skill ceiling, 4-gate triage, 5-layer security (Docker sandbox, Nemotron LLM-on-LLM, Keychain scoping), Quarantine→Probation→Production pipeline, Forge owns lifecycle.
 - [[code-suggestions-skills]] — 7 concrete code changes: required_skills task field, provisionSkills() spawner, skills/ library, Docker sandbox flag, per-skill scopes.yaml, GitHub Actions gate, Janitor skill audit. Ordered by phase.
 - [[review-opus-review89]] — Opus 5-perspective review (post Phase 5-7): Security 4, Reliability 5, Tests 6, Architecture 7, Prod 3. Top 3 beyond v3: unify TS/Python Janitor, 2-pass classifier, Forge cost cap. 6 more candidates for plan-build-v4.
