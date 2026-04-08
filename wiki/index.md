@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-09
-> Total pages: 102
+> Total pages: 103
 > Sources ingested: 8 repos/articles + 1 architecture session + 14 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
 
 ## Templates
@@ -121,6 +121,7 @@
 - [[review-janitor-audit3]] — Janitor audit 3 (Opus-as-Janitor, post-v8): SUGGEST. B1 dead code confirmed, B3 template mismatch, S1 threading race, S5 stale raw/dispatcher.py. 6 fixes before testing. Good patterns preserved. Branch comparison matrix. Design notes for standalone Janitor product.
 - [[plan-build-v9]] — Stripped to 6 real gaps (Opus confirmed 7 items already done in v8): A1 dead code in janitor_evaluate, A2 TOCTOU atomic fd symlink fix, A3 atomic task rename, B1 runRepomix execFileAsync, B2 ForgeRecord unified policy, B3 prompt file cleanup. Target: 198 → ~212 tests.
 - [[review-opus-review95]] — Opus multi-perspective post-v8 (72% readiness). CRIT-1: dead code janitor_evaluate. CRIT-2: TOCTOU symlink race (openSync→fstatSync→readFileSync). HIGH-5: atomic rename task pickup. HIGH-6: runRepomix shell injection. HIGH-1: ForgeRecord policy asymmetry. 7 of 9 v8 plan items already implemented.
+- [[decision-janitor-standalone]] — Janitor as standalone product (agent-janitor repo). Architecture, credential sharing, v1.0.1 false positive fixes, what it finds vs linters. First real scan learnings.
 - [[review-skills-playbook]] — V4 Skills Playbook: 28-skill ceiling, 4-gate triage, 5-layer security (Docker sandbox, Nemotron LLM-on-LLM, Keychain scoping), Quarantine→Probation→Production pipeline, Forge owns lifecycle.
 - [[code-suggestions-skills]] — 7 concrete code changes: required_skills task field, provisionSkills() spawner, skills/ library, Docker sandbox flag, per-skill scopes.yaml, GitHub Actions gate, Janitor skill audit. Ordered by phase.
 - [[review-opus-review89]] — Opus 5-perspective review (post Phase 5-7): Security 4, Reliability 5, Tests 6, Architecture 7, Prod 3. Top 3 beyond v3: unify TS/Python Janitor, 2-pass classifier, Forge cost cap. 6 more candidates for plan-build-v4.

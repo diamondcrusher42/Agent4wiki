@@ -2,6 +2,10 @@
 
 Chronological record of all wiki operations. Append-only.
 
+## [2026-04-09] decision | Janitor standalone product + v1.0.1 false positive fixes
+
+decision-janitor-standalone: First real scan of claude-agent-template surfaced 4 false positive classes. Fixed: Python indentation for elif/else detection, high_entropy_base64 threshold 40→60, generic_password_assignment skips $VAR refs, exclude_path_patterns for .claude/skills. Result: 61+47 findings → 13+8 findings. Upgrades list + tuning wiki page added to agent-janitor repo.
+
 ## [2026-04-09] review | Opus multi-perspective code review 95 (post-v8)
 
 review-opus-review95: 72% readiness, 3 critical findings. CRIT-1: dead code in janitor_evaluate() (~40 lines after return "BLOCK"). CRIT-2: TOCTOU race in scanForLeaks() — realpathSync→readFileSync are separate syscalls, fix with atomic fd. HIGH-5: atomic os.rename() for task pickup (thread-name tracking insufficient). HIGH-6: runRepomix() still uses shell interpolation. HIGH-1: ForgeRecord asymmetry (auditor.ts only writes on NOTE). Key finding: 7 of 9 v8 plan items already implemented — plan-build-v9 rewritten to 6 focused items.

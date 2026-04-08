@@ -207,6 +207,40 @@ private getAllFilesRecursive(dir: string): string[] {
 **Tests:**
 - `getModifiedFiles()` fallback finds a file nested 3 directories deep
 
+### B3b: loadWikiContext() misses wiki subdirectories
+
+**File:** `core/brain/prompt_builder.ts`, `loadWikiContext()` (~line where wiki pages are loaded)
+
+**Current bug:** Looks for wiki pages at `wiki/${pageName}.md` only — silently misses pages in `wiki/decisions/`, `wiki/segments/`, `wiki/concepts/` etc. Clones receive empty wiki context for most domain knowledge pages.
+
+**Fix:** Replace direct path lookup with a recursive search:
+```typescript
+private findWikiPage(pageName: string): string | null {
+  const wikiRoot = path.join(process.cwd(), 'wiki');
+  return this.findFileRecursive(wikiRoot, `${pageName}.md`);
+}
+
+private findFileRecursive(dir: string, filename: string): string | null {
+  if (!fs.existsSync(dir)) return null;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const found = this.findFileRecursive(full, filename);
+      if (found) return found;
+    } else if (entry.name === filename) {
+      return full;
+    }
+  }
+  return null;
+}
+```
+
+Replace any `wiki/${pageName}.md` path construction with `this.findWikiPage(pageName)`.
+
+**Tests:**
+- `loadWikiContext(['segment-brain'])` finds `wiki/segments/segment-brain.md` correctly
+- `loadWikiContext(['nonexistent'])` returns empty string without throwing
+
 ### B4: Orphaned worktree watchdog
 
 **New file:** `core/clones/watchdog.ts`
@@ -387,6 +421,6 @@ python3 -m pytest test/   # 23+ tests green
 | Phase | Changes | New Tests |
 |-------|---------|-----------|
 | A: Security | SSH fix, env strip, noLeaks block | +5 |
-| B: Reliability | File handshake, js-yaml, recursive scan, watchdog | +8 |
+| B: Reliability | File handshake, js-yaml, recursive scan, wiki path fix, watchdog | +10 |
 | C: Quality | executeDirect, history limit, Forge metrics | +5 |
-| **Total** | **10 files changed** | **+18 tests → 102 total** |
+| **Total** | **11 files changed** | **+20 tests → 104 total** |
