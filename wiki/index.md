@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-08
-> Total pages: 68
+> Total pages: 70
 > Sources ingested: 8 repos/articles + 1 architecture session + 13 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge
 
 ## Templates
@@ -29,6 +29,7 @@
 - [[concept-clone-skill-templates]] — Per-skill instruction sets that improve over time.
 - [[concept-clone-lifecycle]] — Full clone execution sequence: spawn → keychain → setup → run → handshake → janitor → teardown. Security invariants.
 - [[concept-routing-classifier]] — Zero-cost complexity routing. DIRECT / BRAIN_ONLY / FULL_PIPELINE. Regex-only, no LLM, < 1ms.
+- [[concept-skill-budget]] — 28-skill ceiling (hard cap, silent drop), 4-gate filter, segment allocation (25 active + 3-4 buffer), graduation pipeline, ASO for descriptions, CLAUDE.md 3-layer architecture.
 - [[concept-summary-pipeline]] — How interactions get compressed before reaching the User Agent.
 - [[concept-git-worktrees]] — Parallel isolated execution environments for clones.
 - [[concept-soul-md]] — Voice and personality persistence across all agents.
@@ -90,6 +91,7 @@
 - [[build-state-2026-04-08]] — Full system snapshot: Phases 0-4 done (57 tests), 2 security patches, known TODOs (MCP transport, AES vault, WikiScythe). opus-build branch 6 commits ahead of main.
 - [[plan-forge-benchmarking]] — Full benchmark plan: 3 concrete tasks from Agent4wiki codebase, JSONL automation, Phase 1 (effort) + Phase 2 (context window) + Forge integration path.
 - [[benchmark-results]] — Live benchmark results tracker: S-MED/S-HIGH/S-MAX/H-MED runs, composite scores, tokens, duration. Empty until first run.
+- [[review-skills-playbook]] — V4 Skills Playbook: 28-skill ceiling, 4-gate triage, 5-layer security (Docker sandbox, Nemotron LLM-on-LLM, Keychain scoping), Quarantine→Probation→Production pipeline, Forge owns lifecycle.
 
 ## Log
 
