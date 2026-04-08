@@ -334,3 +334,34 @@ describe('Watchdog', () => {
     fs.rmSync(tmpDir, { recursive: true });
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// B1: spawner.ts cloneId validation (plan-build-v5)
+// ---------------------------------------------------------------------------
+
+describe('CloneSpawner cloneId validation (B1)', () => {
+  test('valid cloneId proceeds normally', async () => {
+    const spawner = new CloneSpawner();
+    let handle: WorktreeHandle | null = null;
+    try {
+      handle = await spawner.createWorktree('valid-clone-id', 'code');
+      expect(handle.cloneId).toBe('valid-clone-id');
+    } finally {
+      if (handle) {
+        try { execSync(`git worktree remove "${handle.path}" --force`, { stdio: 'pipe' }); } catch {}
+        try { execSync(`git branch -D "${handle.branch}"`, { stdio: 'pipe' }); } catch {}
+      }
+    }
+  });
+
+  test('shell injection cloneId throws', async () => {
+    const spawner = new CloneSpawner();
+    await expect(spawner.createWorktree('evil; rm -rf /', 'code')).rejects.toThrow('Invalid cloneId');
+  });
+
+  test('path traversal cloneId throws', async () => {
+    const spawner = new CloneSpawner();
+    await expect(spawner.createWorktree('../traversal', 'code')).rejects.toThrow('Invalid cloneId');
+  });
+});

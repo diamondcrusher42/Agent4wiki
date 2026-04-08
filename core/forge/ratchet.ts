@@ -62,7 +62,16 @@ export class ForgeRatchet {
     let testHandshake;
     try {
       const lines = fs.readFileSync(eventsPath, 'utf-8').trim().split('\n');
-      const lastEvent = JSON.parse(lines[lines.length - 1]);
+      // C1: Filter for evaluation events — don't use shadow_result or janitor events
+      const evaluationEvent = lines
+        .map(l => { try { return JSON.parse(l); } catch { return null; } })
+        .filter(Boolean)
+        .reverse()
+        .find(e => e.type === 'evaluation');
+      if (!evaluationEvent) {
+        throw new Error('[RATCHET] No evaluation event found in events.jsonl — cannot promote');
+      }
+      const lastEvent = evaluationEvent;
       testHandshake = {
         status: 'COMPLETED' as const,
         files_modified: lastEvent.files_modified || [productionPath],
@@ -71,7 +80,11 @@ export class ForgeRatchet {
         duration_seconds: lastEvent.duration_seconds || 0,
         janitor_notes: `Forge promotion: ${templateName} variant B → production`,
       };
-    } catch {
+    } catch (err) {
+      // Re-throw if no evaluation event found (C1) — only fall back for file read errors
+      if (err instanceof Error && err.message.includes('No evaluation event')) {
+        throw err;
+      }
       testHandshake = {
         status: 'COMPLETED' as const,
         files_modified: [productionPath],

@@ -30,7 +30,7 @@ const VAULT_SALT_FILE = 'vault.salt';
 export class KeychainManager {
   private masterVault: Record<string, string>;
   /** Short secrets that bypass the >16 char entropy filter in scanForLeaks */
-  private exactMatchSecrets: string[] = [];
+  private exactMatchSecrets: Set<string> = new Set();
 
   constructor() {
     this.masterVault = this.loadMasterVault();
@@ -90,7 +90,7 @@ export class KeychainManager {
   public addSecret(key: string, value: string): void {
     if (value.length < 8) {
       console.warn(`[KEYCHAIN] Secret "${key}" is shorter than 8 chars — too short for leak detection`);
-      this.exactMatchSecrets.push(value);
+      this.exactMatchSecrets.add(value);
     }
 
     const password = process.env.VAULT_MASTER_PASSWORD;
@@ -337,7 +337,7 @@ export class KeychainManager {
           // C1: Populate exactMatchSecrets for leak detection
           for (const [k, v] of Object.entries(secrets)) {
             if (v.length >= 8) {
-              this.exactMatchSecrets.push(v);
+              this.exactMatchSecrets.add(v);
             }
           }
           return secrets;
@@ -365,7 +365,7 @@ export class KeychainManager {
       // C1: Populate exactMatchSecrets for leak detection
       for (const [k, v] of Object.entries(vault)) {
         if (v.length >= 8) {
-          this.exactMatchSecrets.push(v);
+          this.exactMatchSecrets.add(v);
         }
       }
     } catch {

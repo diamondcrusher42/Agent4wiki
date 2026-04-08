@@ -26,6 +26,10 @@ export class CloneSpawner {
    * Returns the worktree handle for Keychain injection + runner.
    */
   public async createWorktree(cloneId: string, skill: string): Promise<WorktreeHandle> {
+    // B1: Validate cloneId to prevent shell injection
+    if (!/^[\w-]+$/.test(cloneId)) {
+      throw new Error(`[SPAWNER] Invalid cloneId "${cloneId}" — must match ^[\\w-]+$`);
+    }
     const branch = `clone/${cloneId}`;
     const worktreePath = path.resolve(REPO_ROOT, 'state', 'worktrees', cloneId);
 
@@ -53,7 +57,7 @@ export class CloneSpawner {
       '#!/bin/bash',
       'set -e',
       'cd "$(dirname "$0")"',
-      '[[ -f package.json ]] && npm install --silent',
+      '[[ -f package.json ]] && npm install --prefer-offline --no-audit --no-fund --silent',
       '[[ -f requirements.txt ]] && pip install -r requirements.txt --quiet',
       'echo "Setup complete."',
     ].join('\n') + '\n';

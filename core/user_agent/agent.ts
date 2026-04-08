@@ -99,7 +99,7 @@ export class UserAgent {
   private async executeDirect(prompt: string): Promise<string> {
     try {
       const soul = this.loadSoul();
-      const history = this.conversationHistory.slice(-10).map(h => ({
+      const history = this.conversationHistory.slice(-11, -1).map(h => ({
         role: h.role as 'user' | 'assistant',
         content: h.content,
       }));
@@ -126,6 +126,11 @@ export class UserAgent {
     try {
       const planning = await this.planner.plan(prompt, `brain-${Date.now()}`);
 
+      // A3: Inject conversation history so BRAIN_ONLY mode has prior context
+      const history = this.conversationHistory.slice(-11, -1).map(h => ({
+        role: h.role as 'user' | 'assistant',
+        content: h.content,
+      }));
       // Use the plan's reasoning as context to produce a proper answer
       const soul = this.loadSoul();
       const contextPrompt = `The user asked: "${prompt}"\n\nYour planning analysis:\n${planning.reasoning.join('\n')}\n\nNow provide a clear, helpful answer to the user's question based on this analysis.`;
@@ -134,7 +139,7 @@ export class UserAgent {
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 1024,
         system: soul || 'You are a helpful assistant. Provide clear, well-reasoned answers.',
-        messages: [{ role: 'user', content: contextPrompt }],
+        messages: [...history, { role: 'user', content: contextPrompt }],
       });
       return response.content
         .filter((b): b is Anthropic.TextBlock => b.type === 'text')

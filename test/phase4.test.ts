@@ -522,3 +522,171 @@ describe('UserAgent conversation history limits', () => {
     expect(flushSpy).toHaveBeenCalled();
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// A2: executeDirect() duplicate message fix (plan-build-v5)
+// ---------------------------------------------------------------------------
+
+describe('executeDirect duplicate message fix (A2)', () => {
+  test('user message does NOT appear twice in messages array', async () => {
+    const mockClient = {
+      messages: {
+        create: jest.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'response' }],
+        }),
+      },
+    } as any;
+
+    const agent = new UserAgent(mockClient);
+    // Force DIRECT routing
+    (agent as any).classifier = { classify: jest.fn().mockResolvedValue(TaskComplexity.DIRECT) };
+    // Pre-fill 5 history entries + the current one will be pushed by handleUserInput
+    (agent as any).conversationHistory = [
+      { role: 'user', content: 'msg1', timestamp: new Date().toISOString() },
+      { role: 'assistant', content: 'resp1', timestamp: new Date().toISOString() },
+      { role: 'user', content: 'msg2', timestamp: new Date().toISOString() },
+      { role: 'assistant', content: 'resp2', timestamp: new Date().toISOString() },
+      { role: 'user', content: 'msg3', timestamp: new Date().toISOString() },
+    ];
+
+    await agent.handleUserInput('hello');
+
+    const call = mockClient.messages.create.mock.calls[0][0];
+    // Count how many times 'hello' appears in messages
+    const helloCount = call.messages.filter((m: any) => m.content === 'hello').length;
+    expect(helloCount).toBe(1); // exactly once — not duplicated
+  });
+
+  test('history slice excludes current turn', async () => {
+    const mockClient = {
+      messages: {
+        create: jest.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'ok' }],
+        }),
+      },
+    } as any;
+
+    const agent = new UserAgent(mockClient);
+    // Force DIRECT routing
+    (agent as any).classifier = { classify: jest.fn().mockResolvedValue(TaskComplexity.DIRECT) };
+    // 5 history entries, then handleUserInput adds current
+    (agent as any).conversationHistory = [
+      { role: 'user', content: 'a', timestamp: new Date().toISOString() },
+      { role: 'assistant', content: 'b', timestamp: new Date().toISOString() },
+      { role: 'user', content: 'c', timestamp: new Date().toISOString() },
+      { role: 'assistant', content: 'd', timestamp: new Date().toISOString() },
+      { role: 'user', content: 'e', timestamp: new Date().toISOString() },
+    ];
+
+    await agent.handleUserInput('current');
+
+    const call = mockClient.messages.create.mock.calls[0][0];
+    // History should be 5 entries (a,b,c,d,e) + 1 explicit 'current' = 6 total
+    expect(call.messages.length).toBe(6);
+    // Last message should be the explicit prompt
+    expect(call.messages[call.messages.length - 1].content).toBe('current');
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// A3: routeToBrain() includes conversation history (plan-build-v5)
+// ---------------------------------------------------------------------------
+
+describe('routeToBrain conversation history (A3)', () => {
+  test('routeToBrain includes conversation history in API call', async () => {
+    const mockClient = {
+      messages: {
+        create: jest.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'Answer based on context' }],
+        }),
+      },
+    } as any;
+
+    const agent = new UserAgent(mockClient);
+    (agent as any).planner = {
+      plan: jest.fn().mockResolvedValue({
+        reasoning: ['Step 1'],
+        brief: { id: 'test', objective: 'test', skill: 'code',
+          requiredKeys: [], wikiContext: [], constraints: [],
+          allowedPaths: [], allowedEndpoints: [], timeoutMinutes: 10 },
+        confidence: 0.8,
+      }),
+    };
+    (agent as any).classifier = { classify: jest.fn().mockResolvedValue(TaskComplexity.BRAIN_ONLY) };
+
+    // Pre-fill history
+    (agent as any).conversationHistory = [
+      { role: 'user', content: 'I described a system', timestamp: new Date().toISOString() },
+      { role: 'assistant', content: 'I see, a system with X', timestamp: new Date().toISOString() },
+    ];
+
+    await agent.handleUserInput('explain what I just described');
+
+    const call = mockClient.messages.create.mock.calls[0][0];
+    // Should have history (2 entries) + contextPrompt (1) = 3 messages
+    expect(call.messages.length).toBe(3);
+    expect(call.messages[0].content).toBe('I described a system');
+    expect(call.messages[1].content).toBe('I see, a system with X');
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// B2: loadWikiContext total budget cap (plan-build-v5)
+// ---------------------------------------------------------------------------
+
+describe('loadWikiContext total budget cap (B2)', () => {
+  test('caps total wiki context at MAX_TOTAL_CHARS', async () => {
+    const builder = new PromptBuilder();
+    const loadWiki = (builder as any).loadWikiContext.bind(builder);
+
+    // Create temp wiki with many large pages
+    const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'test-wiki-cap-'));
+    const pages: string[] = [];
+    for (let i = 0; i < 30; i++) {
+      const pageName = `page-${i}`;
+      pages.push(pageName);
+      fs.writeFileSync(path.join(tmpDir, `${pageName}.md`), 'x'.repeat(800));
+    }
+
+    // Monkey-patch resolveWikiPage to use our temp dir
+    const origResolve = (builder as any).resolveWikiPage.bind(builder);
+    (builder as any).resolveWikiPage = (name: string) => {
+      const p = path.join(tmpDir, `${name}.md`);
+      return fs.existsSync(p) ? p : null;
+    };
+
+    const result = await loadWiki(pages);
+
+    // Total should be capped at ~2000 chars (not 30 * 800 = 24000)
+    expect(result.length).toBeLessThan(3000);
+    // Should have at least some content
+    expect(result.length).toBeGreaterThan(0);
+
+    // Restore
+    (builder as any).resolveWikiPage = origResolve;
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+
+  test('2 small pages under budget returns both', async () => {
+    const builder = new PromptBuilder();
+    const loadWiki = (builder as any).loadWikiContext.bind(builder);
+
+    const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'test-wiki-small-'));
+    fs.writeFileSync(path.join(tmpDir, 'small-a.md'), 'Content A');
+    fs.writeFileSync(path.join(tmpDir, 'small-b.md'), 'Content B');
+
+    (builder as any).resolveWikiPage = (name: string) => {
+      const p = path.join(tmpDir, `${name}.md`);
+      return fs.existsSync(p) ? p : null;
+    };
+
+    const result = await loadWiki(['small-a', 'small-b']);
+    expect(result).toContain('Content A');
+    expect(result).toContain('Content B');
+
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+});

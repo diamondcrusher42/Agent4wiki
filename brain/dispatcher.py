@@ -57,7 +57,8 @@ from bridge import get_bridge, BridgeError
 _HEURISTICS_PATH = Path(__file__).parent.parent / 'core' / 'janitor' / 'config' / 'heuristics.json'
 try:
     import json as _json_h
-    WARN_KEYWORDS = _json_h.load(open(_HEURISTICS_PATH))['warn_keywords']
+    with open(_HEURISTICS_PATH) as _f:
+        WARN_KEYWORDS = _json_h.load(_f)['warn_keywords']
 except (FileNotFoundError, KeyError, json.JSONDecodeError):
     WARN_KEYWORDS = ['todo:', 'hacky', 'tech debt', 'temporary', 'fragile', 'slow', 'fixme', 'workaround']
 

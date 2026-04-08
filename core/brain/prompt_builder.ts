@@ -66,7 +66,10 @@ export class PromptBuilder {
    * Total budget: ~500 tokens. Pages truncated if over budget.
    */
   private async loadWikiContext(pageNames: string[]): Promise<string> {
+    const MAX_TOTAL_CHARS = 2000; // ~500 tokens total budget
     const sections: string[] = [];
+    let totalChars = 0;
+
     for (const pageName of pageNames) {
       const resolved = this.resolveWikiPage(pageName);
       if (!resolved) {
@@ -75,7 +78,13 @@ export class PromptBuilder {
       }
       try {
         const content = await fs.promises.readFile(resolved, 'utf-8');
-        sections.push(`## ${pageName}\n${content.slice(0, 800)}`); // ~200 tokens each
+        const excerpt = content.slice(0, 800);
+        if (totalChars + excerpt.length > MAX_TOTAL_CHARS) {
+          console.warn(`[PROMPT_BUILDER] Wiki budget reached at ${pageName} — truncating context`);
+          break;
+        }
+        sections.push(`## ${pageName}\n${excerpt}`);
+        totalChars += excerpt.length;
       } catch {
         console.warn(`[PROMPT_BUILDER] Could not read wiki page: ${pageName}`);
       }

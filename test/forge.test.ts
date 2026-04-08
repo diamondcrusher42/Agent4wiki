@@ -307,7 +307,7 @@ describe('ForgeRatchet reads real forge events', () => {
     const forgeDir = path.join(tmpDir, 'forge');
     fs.mkdirSync(forgeDir, { recursive: true });
     fs.writeFileSync(path.join(forgeDir, 'events.jsonl'),
-      JSON.stringify({ tokens_consumed: 1500, duration_seconds: 42, files_modified: ['main.py'] }) + '\n'
+      JSON.stringify({ type: 'evaluation', tokens_consumed: 1500, duration_seconds: 42, files_modified: ['main.py'] }) + '\n'
     );
 
     try {
@@ -411,5 +411,171 @@ describe('CloneResult interface', () => {
 
     expect(result.tokensConsumed).toBe(1500);
     expect(result.filesModified).toEqual(['main.py', 'test.py']);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// A1: Shadow run records metric in metrics table (plan-build-v5)
+// ---------------------------------------------------------------------------
+
+describe('ShadowRunner records metric after shadow run (A1)', () => {
+  test('getTotalTokensThisCycle() reflects tokens after shadow run', async () => {
+    const dbPath = path.join(os.tmpdir(), `test-shadow-metric-${Date.now()}.db`);
+    const db = new ForgeMetricsDb(dbPath);
+
+    const mockWorker = {
+      execute: jest.fn().mockResolvedValue({
+        directive: 'NOTE',
+        tokensConsumed: 3000,
+        feedback: 'clean',
+        filesModified: ['main.py'],
+      }),
+    } as any;
+
+    const { ShadowRunner } = require('../core/forge/shadow_runner');
+    const runner = new ShadowRunner(mockWorker, db, 50000);
+
+    const brief = {
+      id: 'test-a1', objective: 'test', skill: 'code',
+      requiredKeys: [], wikiContext: [], constraints: [],
+      allowedPaths: [], allowedEndpoints: [], timeoutMinutes: 10,
+    };
+
+    const result = await runner.runShadow(brief, 'variant_b.md');
+    expect(result).not.toBeNull();
+
+    // Budget should now reflect the tokens consumed
+    const total = db.getTotalTokensThisCycle();
+    expect(total).toBe(3000);
+
+    db.close();
+    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
+  });
+
+  test('budget cap blocks second shadow run after first consumed enough', async () => {
+    const dbPath = path.join(os.tmpdir(), `test-shadow-block-${Date.now()}.db`);
+    const db = new ForgeMetricsDb(dbPath);
+
+    const mockWorker = {
+      execute: jest.fn().mockResolvedValue({
+        directive: 'NOTE',
+        tokensConsumed: 46000,
+        feedback: 'clean',
+        filesModified: [],
+      }),
+    } as any;
+
+    const { ShadowRunner } = require('../core/forge/shadow_runner');
+    const runner = new ShadowRunner(mockWorker, db, 50000);
+
+    const brief = {
+      id: 'test-a1-block', objective: 'test', skill: 'code',
+      requiredKeys: [], wikiContext: [], constraints: [],
+      allowedPaths: [], allowedEndpoints: [], timeoutMinutes: 10,
+    };
+
+    // First run should succeed and record 46000 tokens
+    const result1 = await runner.runShadow(brief, 'variant_b.md');
+    expect(result1).not.toBeNull();
+
+    // Second run should be blocked (46000 + 5000 > 50000)
+    const result2 = await runner.runShadow(brief, 'variant_b.md');
+    expect(result2).toBeNull();
+
+    db.close();
+    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// C1: promote() event type filtering (plan-build-v5)
+// ---------------------------------------------------------------------------
+
+describe('promote() event type filtering (C1)', () => {
+  let db: ForgeMetricsDb;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dbPath = path.join(os.tmpdir(), `test-promote-filter-${Date.now()}.db`);
+    db = new ForgeMetricsDb(dbPath);
+  });
+
+  afterEach(() => {
+    db.close();
+    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
+  });
+
+  test('promote() uses evaluation event, not shadow_result', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-promote-eval-'));
+    const originalCwd = process.cwd;
+    process.cwd = () => tmpDir;
+
+    const templatesDir = path.join(tmpDir, 'core', 'clones', 'templates');
+    fs.mkdirSync(templatesDir, { recursive: true });
+    fs.writeFileSync(path.join(templatesDir, 'variant_b_evaltest.md'), '# Eval variant');
+    fs.writeFileSync(path.join(templatesDir, 'evaltest.md'), '# Original');
+
+    const wikiDir = path.join(tmpDir, 'wiki');
+    fs.mkdirSync(wikiDir, { recursive: true });
+    fs.writeFileSync(path.join(wikiDir, 'log.md'), '# Log\n');
+
+    // Write mixed events — shadow_result then evaluation
+    const forgeDir = path.join(tmpDir, 'forge');
+    fs.mkdirSync(forgeDir, { recursive: true });
+    const events = [
+      JSON.stringify({ type: 'shadow_result', tokens_consumed: 999, duration_seconds: 10 }),
+      JSON.stringify({ type: 'evaluation', tokens_consumed: 500, duration_seconds: 5, files_modified: ['eval.py'] }),
+    ];
+    fs.writeFileSync(path.join(forgeDir, 'events.jsonl'), events.join('\n') + '\n');
+
+    try {
+      const ratchet = new ForgeRatchet(db);
+      for (let i = 0; i < 5; i++) {
+        await ratchet.recordOutcome('evaltest', 'WIN_B');
+      }
+      // Promotion should succeed using the evaluation event
+      const prodContent = fs.readFileSync(path.join(templatesDir, 'evaltest.md'), 'utf-8');
+      expect(prodContent).toBe('# Eval variant');
+    } finally {
+      process.cwd = originalCwd;
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('promote() throws when only shadow_result events exist', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-promote-noevals-'));
+    const originalCwd = process.cwd;
+    process.cwd = () => tmpDir;
+
+    const templatesDir = path.join(tmpDir, 'core', 'clones', 'templates');
+    fs.mkdirSync(templatesDir, { recursive: true });
+    fs.writeFileSync(path.join(templatesDir, 'variant_b_noeval.md'), '# No eval');
+    fs.writeFileSync(path.join(templatesDir, 'noeval.md'), '# Original');
+
+    const wikiDir = path.join(tmpDir, 'wiki');
+    fs.mkdirSync(wikiDir, { recursive: true });
+    fs.writeFileSync(path.join(wikiDir, 'log.md'), '# Log\n');
+
+    // Only shadow_result events, no evaluation
+    const forgeDir = path.join(tmpDir, 'forge');
+    fs.mkdirSync(forgeDir, { recursive: true });
+    fs.writeFileSync(path.join(forgeDir, 'events.jsonl'),
+      JSON.stringify({ type: 'shadow_result', tokens_consumed: 100, duration_seconds: 5 }) + '\n'
+    );
+
+    try {
+      const ratchet = new ForgeRatchet(db);
+      // Record 4 wins first (they don't trigger promote)
+      for (let i = 0; i < 4; i++) {
+        await ratchet.recordOutcome('noeval', 'WIN_B');
+      }
+      // 5th win triggers promote which should throw because no evaluation events
+      await expect(ratchet.recordOutcome('noeval', 'WIN_B')).rejects.toThrow('No evaluation event');
+    } finally {
+      process.cwd = originalCwd;
+      fs.rmSync(tmpDir, { recursive: true });
+    }
   });
 });

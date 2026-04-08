@@ -80,6 +80,17 @@ export class ShadowRunner {
       filesModified: result.filesModified,
     };
 
+    // A1: Record metric in metrics table so budget tracking works
+    if (this.metricsDb) {
+      this.metricsDb.recordMetric({
+        run_id: shadowId,
+        tokens_consumed: result.tokensConsumed,
+        duration_ms: durationSeconds * 1000,
+        model: 'shadow',
+        task_type: 'shadow_run',
+      });
+    }
+
     // Write result to forge/events.jsonl
     const eventsPath = path.join(process.cwd(), 'forge', 'events.jsonl');
     const dir = path.dirname(eventsPath);

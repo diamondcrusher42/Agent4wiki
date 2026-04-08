@@ -38,6 +38,17 @@ export class ForgeMetricsDb {
     `);
   }
 
+  /**
+   * Record a metric from a shadow run or other forge operation.
+   * This is the bridge between events.jsonl (append-only log) and the metrics table (budget tracking).
+   */
+  public recordMetric(data: { run_id: string; tokens_consumed: number; duration_ms: number; model: string; task_type: string }): void {
+    this.db.prepare(`INSERT INTO metrics VALUES (null,?,?,?,?,?,?,?)`)
+      .run(data.task_type, data.task_type, 'NOTE',
+           data.tokens_consumed, data.duration_ms / 1000,
+           `run_id=${data.run_id}`, new Date().toISOString());
+  }
+
   public insertMetric(row: MetricRow): void {
     this.db.prepare(`INSERT INTO metrics VALUES (null,?,?,?,?,?,?,?)`)
       .run(row.template_name, row.skill, row.directive,

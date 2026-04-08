@@ -579,3 +579,61 @@ test('secrets loaded from encrypted vault are detected by scanForLeaks (C1)', ()
     fs.rmSync(tmpDir, { recursive: true });
   }
 });
+
+
+// ---------------------------------------------------------------------------
+// C3: exactMatchSecrets Set deduplication (plan-build-v5)
+// ---------------------------------------------------------------------------
+
+test('adding same secret twice results in single entry (C3)', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-dedup-'));
+  fs.writeFileSync(path.join(tmpDir, '.env'), 'KEY1=short1\n');
+  const originalCwd = process.cwd;
+  const originalEnv = process.env.VAULT_MASTER_PASSWORD;
+  process.cwd = () => tmpDir;
+  process.env.VAULT_MASTER_PASSWORD = 'test-dedup-pw';
+
+  try {
+    const km = new KeychainManager();
+    km.initVault('test-dedup-pw', { SECRET_A: 'my-secret-value-long-enough' });
+
+    // Add same secret twice
+    km.addSecret('DUP1', 'short');
+    km.addSecret('DUP2', 'short');
+
+    const secrets = (km as any).exactMatchSecrets;
+    // Set should deduplicate
+    expect(secrets instanceof Set).toBe(true);
+    const arr = [...secrets];
+    const count = arr.filter((v: string) => v === 'short').length;
+    expect(count).toBe(1);
+  } finally {
+    process.cwd = originalCwd;
+    if (originalEnv !== undefined) process.env.VAULT_MASTER_PASSWORD = originalEnv;
+    else delete process.env.VAULT_MASTER_PASSWORD;
+    fs.rmSync(tmpDir, { recursive: true });
+  }
+});
+
+test('scanForLeaks still detects secret after deduplication (C3)', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-dedup-scan-'));
+  fs.writeFileSync(path.join(tmpDir, '.env'), 'SECRET=abcdef1234567890\n');
+  const originalCwd = process.cwd;
+  process.cwd = () => tmpDir;
+
+  try {
+    const km = new KeychainManager();
+    // Secret is loaded from .env into exactMatchSecrets
+
+    const worktreeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-dedup-leak-'));
+    fs.writeFileSync(path.join(worktreeDir, 'config.py'), "KEY = 'abcdef1234567890'");
+
+    const clean = (km as any).scanForLeaks(worktreeDir);
+    expect(clean).toBe(false);
+
+    fs.rmSync(worktreeDir, { recursive: true });
+  } finally {
+    process.cwd = originalCwd;
+    fs.rmSync(tmpDir, { recursive: true });
+  }
+});
