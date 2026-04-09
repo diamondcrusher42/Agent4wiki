@@ -1,5 +1,9 @@
 # Wiki Log
 
+## [2026-04-09] janitor | Opus Tier 2 deep audit — v9 post-implementation review
+
+Commit c881c27 (main). 60/60 Python tests passing. 1 BLOCK: unfilled template variables (INJECT_WIKI_CONTEXT_HERE, INJECT_ALLOWED_ENDPOINTS_HERE) never replaced in Python dispatcher clone path — clones get literal placeholder strings and no network scope. 7 SUGGEST: advisory-only validation, token estimation inconsistency, no bridge.py tests, no benchmark_score.py tests, synthetic handshake auto-approves, unbounded objective growth, remote polling no backoff. 4 NOTE: stale comment, import alias, CLI stubs, example key string. TS/Python Janitor decision trees confirmed aligned. Health score: 40/100 (+40 from baseline 0). Pages created: [[janitor-audit-2026-04-09-v9]]. Index updated.
+
 Chronological record of all wiki operations. Append-only.
 
 ## [2026-04-09] janitor | main post-merge audit (Haiku+extended)

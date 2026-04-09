@@ -1,0 +1,8 @@
+{
+  "lastScore": 40,
+  "lastRun": "2026-04-09T18:00:00.000Z",
+  "history": [
+    {"score": 0, "date": "2026-04-09T12:18:09.541Z", "note": "initial baseline"},
+    {"score": 40, "date": "2026-04-09T18:00:00.000Z", "note": "Opus Tier 2 deep audit — v9 post-implementation, commit c881c27"}
+  ]
+}
