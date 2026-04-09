@@ -23,6 +23,9 @@ state/**
 # ...and keep the .gitkeep sentinels so fresh clones get the correct folder layout
 !state/**/.gitkeep
 
+# Worktree sandboxes — runtime-generated, never committed (includes quarantine/)
+state/worktrees/
+
 # Ensure Clones don't accidentally commit their injected .env files
 # if they somehow bypass the worktree sandbox (Defense in Depth)
 state/worktrees/*/.env

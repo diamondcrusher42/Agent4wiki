@@ -754,7 +754,8 @@ def process_task_file(task_path: Path) -> dict:
             with open(active_path) as _f:
                 _raw = json.load(_f)
                 target = _raw.get('target_node', '')
-        except:
+        except Exception as e:
+            log.warning(f"Failed to read target_node from task file {active_path}: {e}")
             target = ''
 
     if target and not is_local_node(target):

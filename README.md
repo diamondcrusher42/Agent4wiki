@@ -84,7 +84,7 @@ Bridge (The Output Layer)   — everything the user sees; Telegram relay; never 
 
 ## Current State (as of 2026-04-08) — Branch: `opus-build`
 
-**198 tests passing (156 Jest + 42 pytest). TSC clean. 0 stubs remaining.**
+**211 tests passing (160 Jest + 51 pytest). TSC clean. 0 stubs remaining. v0.9.0 (9 build phases, pre-1.0)**
 
 ### Build progress
 
@@ -96,7 +96,8 @@ Bridge (The Output Layer)   — everything the user sees; Telegram relay; never 
 | v5 | 140 | Forge budget real, spawner injection blocked, wiki token cap |
 | v6 | 157 | Registry format fix, OOM guard, dispatcher injection, soul TTL |
 | v7 | 174 | Python vault leak fixed, git status scan, env allowlist, confidence gate |
-| **v8** | **198** | Janitor unified (TS/Python), rename parsing, symlink guard, watch() threaded, execFile, config externalised, quarantine mode |
+| v8 | 198 | Janitor unified (TS/Python), rename parsing, symlink guard, watch() threaded, execFile, config externalised, quarantine mode |
+| **v9 (0.9.0)** | **211** | bare except narrowed, quarantine purged, version bumped to pre-1.0 |
 
 ### What is implemented
 
