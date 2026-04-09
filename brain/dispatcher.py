@@ -266,8 +266,8 @@ def read_file_safe(path: Path, max_tokens: int = 2000) -> str:
     if not path.exists():
         return ""
     content = path.read_text(encoding="utf-8", errors="replace")
-    # Rough token estimate: 1 token ≈ 4 chars
-    max_chars = max_tokens * 4
+    # Token estimate: 1 token ≈ 3 chars (code-heavy content; matches budget guard)
+    max_chars = max_tokens * 3
     if len(content) > max_chars:
         content = content[:max_chars] + "\n\n[... truncated to fit context budget ...]"
     return content
@@ -936,23 +936,33 @@ def process_task_file(task_path: Path) -> dict:
     handshake = extract_handshake(output)
 
     if not handshake:
-        # No parseable handshake — treat the raw result status as a fallback
-        if result.get("status") == "COMPLETED":
-            # Session completed but no structured handshake — treat as NOTE
-            handshake = {
-                "status": "COMPLETED",
-                "tests_passed": True,
-                "files_modified": [],
-                "janitor_notes": "No structured handshake — raw completion accepted.",
-                "tokens_consumed": 0,
-                "duration_seconds": 0,
-            }
+        # S5 fix: no synthetic approval — clones must output explicit handshake JSON.
+        # Exit code 0 without a handshake is FAILED_RETRY (not NOTE) so the clone
+        # gets another attempt with a clear directive to output its handshake.
+        reason = (
+            "No JSON handshake found in clone output. "
+            "Clone must output a JSON object with 'status' field as the last line of stdout. "
+            f"exit_code={result.get('exit_code', '?')}"
+        )
+        log.error(f"[{task.id}] {reason}")
+        log_event("task_finished", {"task_id": task.id, "status": "no_handshake", "type": task.type})
+        if task.retry_count < MAX_RETRIES - 1:
+            # Re-queue with explanation so clone knows what it did wrong
+            task.objective += (
+                f"\n\n---\n# Prior Attempt {task.retry_count} — NO HANDSHAKE\n"
+                f"Your previous run exited without outputting a JSON handshake.\n"
+                f"You MUST output a JSON object with at least {{\"status\": \"COMPLETED\", "
+                f"\"janitor_notes\": \"...\", \"tests_passed\": true}} as the LAST line of stdout.\n"
+                f"Do NOT skip this step."
+            )
+            if active_path.exists():
+                active_path.unlink()
+            requeue_task(task, INBOX)
+            notify_human(task, "SUGGEST", {"janitor_notes": reason})
         else:
-            log.error(f"[{task.id}] No JSON handshake in clone output — treating as BLOCK")
-            move_to_failed(task, active_path, "No handshake JSON found")
-            log_event("task_finished", {"task_id": task.id, "status": "BLOCK", "type": task.type})
-            notify_human(task, "BLOCK", {"janitor_notes": "No handshake JSON in clone output"})
-            return result
+            move_to_failed(task, active_path, reason)
+            notify_human(task, "BLOCK", {"janitor_notes": reason})
+        return result
 
     directive = janitor_evaluate(handshake, task.retry_count, task.id)
     write_forge_record(task, directive, handshake)
