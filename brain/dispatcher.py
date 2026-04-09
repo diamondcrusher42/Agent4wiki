@@ -83,6 +83,10 @@ try:
 except (FileNotFoundError, KeyError, json.JSONDecodeError):
     MAX_RETRIES = 3  # Fallback
 
+# C2: Context token budgets (approximate, using len//3 for code-heavy content)
+CONTEXT_TOKEN_BUDGET_BRAIN = 8000
+CONTEXT_TOKEN_BUDGET_CLONE = 6000
+
 # A1: Sensitive env keys that must never leak to clones
 SENSITIVE_ENV_KEYS = {
     'VAULT_MASTER_PASSWORD',
@@ -310,6 +314,42 @@ def assemble_context(task: Task) -> str:
         wiki_index = read_file_safe(WIKI_INDEX, max_tokens=500)
         if wiki_index:
             parts.append(f"# Wiki Index\n{wiki_index}")
+
+    # C2: Context budget guard — drop lowest-priority wiki pages if over budget
+    # wiki_pages are ordered descending priority (first = most important)
+    # so we drop from the end. Budget split by task type: brain=8000t, clone=6000t.
+    budget = CONTEXT_TOKEN_BUDGET_BRAIN if task.type == "brain" else CONTEXT_TOKEN_BUDGET_CLONE
+    full_text = "\n\n---\n\n".join(parts)
+    estimated_tokens = len(full_text) // 3  # code-heavy: // 3 is more accurate than // 4
+    if estimated_tokens > budget and task.wiki_pages:
+        dropped = 0
+        # wiki page parts start after the template/preamble parts — find them by prefix
+        while estimated_tokens > budget and len(parts) > 1:
+            # Find the last wiki page part and remove it
+            for i in range(len(parts) - 1, -1, -1):
+                if parts[i].startswith("# Wiki:"):
+                    parts.pop(i)
+                    dropped += 1
+                    break
+            else:
+                break  # no more wiki parts to drop
+            full_text = "\n\n---\n\n".join(parts)
+            estimated_tokens = len(full_text) // 3
+        if dropped:
+            log.warning(
+                f"[{task.id}] Context budget exceeded ({estimated_tokens}t > {budget}t) "
+                f"— dropped {dropped} wiki page(s)"
+            )
+            parts.append(
+                f"[Note: {dropped} wiki page(s) dropped due to context budget — "
+                f"resubmit with fewer wiki_pages if needed]"
+            )
+            log_event("context_budget_exceeded", {
+                "task_id": task.id,
+                "estimated_tokens": estimated_tokens,
+                "budget": budget,
+                "dropped_pages": dropped,
+            })
 
     return "\n\n---\n\n".join(parts)
 
@@ -590,6 +630,10 @@ def extract_handshake(output: str) -> Optional[dict]:
             try:
                 obj = json.loads(stripped)
                 if "status" in obj:
+                    valid, errs = validate_handshake(obj)
+                    if not valid:
+                        log.warning(f"[HANDSHAKE] Schema validation failed: {errs}")
+                        log_event("handshake_invalid", {"errors": errs})
                     return obj
             except json.JSONDecodeError:
                 continue
@@ -597,10 +641,59 @@ def extract_handshake(output: str) -> Optional[dict]:
     matches = re.findall(r'\{[^{}]*"status"[^{}]*\}', output, re.DOTALL)
     if matches:
         try:
-            return json.loads(matches[-1])
+            obj = json.loads(matches[-1])
+            valid, errs = validate_handshake(obj)
+            if not valid:
+                log.warning(f"[HANDSHAKE] Schema validation failed (regex fallback): {errs}")
+                log_event("handshake_invalid", {"errors": errs})
+            return obj
         except json.JSONDecodeError:
             pass
     return None
+
+
+_VALID_STATUSES = {"COMPLETED", "FAILED_RETRY", "FAILED_REQUIRE_HUMAN", "BLOCKED_IMPOSSIBLE"}
+
+
+def validate_handshake(data: dict) -> tuple[bool, list[str]]:
+    """Validate handshake schema. Returns (valid, [error_messages]).
+
+    Advisory only — caller logs warnings but proceeds regardless.
+    janitor_notes is required: it is the sole context for SUGGEST retries.
+    """
+    errors: list[str] = []
+
+    # status: required, must be a known value
+    status = data.get("status")
+    if not isinstance(status, str):
+        errors.append(f"status missing or not a string (got {type(status).__name__})")
+    elif status not in _VALID_STATUSES:
+        errors.append(f"status '{status}' not in known values {_VALID_STATUSES}")
+
+    # janitor_notes: required — sole context for SUGGEST re-queues
+    notes = data.get("janitor_notes")
+    if notes is None:
+        errors.append("janitor_notes missing (required — sole context for SUGGEST retries)")
+    elif not isinstance(notes, str):
+        errors.append(f"janitor_notes must be str (got {type(notes).__name__})")
+
+    # files_modified: optional, must be list if present
+    files = data.get("files_modified")
+    if files is not None and not isinstance(files, list):
+        errors.append(f"files_modified must be list (got {type(files).__name__})")
+
+    # tokens_consumed / duration_seconds: optional numerics
+    for field_name in ("tokens_consumed", "duration_seconds"):
+        val = data.get(field_name)
+        if val is not None and not isinstance(val, (int, float)):
+            errors.append(f"{field_name} must be int or float (got {type(val).__name__})")
+
+    # tests_passed: optional bool
+    tp = data.get("tests_passed")
+    if tp is not None and not isinstance(tp, bool):
+        errors.append(f"tests_passed must be bool (got {type(tp).__name__})")
+
+    return (len(errors) == 0, errors)
 
 
 def janitor_evaluate(handshake: dict, retry_count: int, task_id: str) -> str:
@@ -812,7 +905,16 @@ def process_task_file(task_path: Path) -> dict:
         notify_human(task, directive, handshake)
     elif directive == "SUGGEST":
         log.info(f"[{task.id}] Janitor: SUGGEST — re-queuing with feedback")
-        task.objective += f"\n\nJanitor feedback: {handshake.get('janitor_notes', '')}"
+        files_str = ", ".join(handshake.get("files_modified", [])) or "none"
+        history_entry = (
+            f"\n\n---\n# Prior Attempt {task.retry_count}"
+            f" ({datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M UTC')})\n"
+            f"Directive: SUGGEST\n"
+            f"Files modified: {files_str}\n"
+            f"Janitor notes: {handshake.get('janitor_notes', 'none')}\n"
+            f"Do NOT repeat the same approach."
+        )
+        task.objective += history_entry
         if active_path.exists():
             active_path.unlink()
         requeue_task(task, INBOX)

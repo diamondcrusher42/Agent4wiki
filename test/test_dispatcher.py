@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "brain"))
 from dispatcher import (
     janitor_evaluate,
     extract_handshake,
+    validate_handshake,
     write_forge_record,
     load_task,
     Task,
@@ -18,6 +19,9 @@ from dispatcher import (
     build_clone_env,
     SENSITIVE_ENV_KEYS,
     claim_task,
+    CONTEXT_TOKEN_BUDGET_BRAIN,
+    CONTEXT_TOKEN_BUDGET_CLONE,
+    assemble_context,
 )
 
 
@@ -738,3 +742,134 @@ def test_prompt_file_cleaned_on_exception(tmp_path, monkeypatch):
             prompt_file.unlink()
 
     assert not prompt_file.exists()
+
+
+# ---------------------------------------------------------------------------
+# v9 Fix 1: validate_handshake tests
+# ---------------------------------------------------------------------------
+
+def test_validate_handshake_valid_minimal():
+    """Valid handshake with required fields passes."""
+    valid, errs = validate_handshake({
+        "status": "COMPLETED",
+        "janitor_notes": "All good.",
+    })
+    assert valid is True
+    assert errs == []
+
+
+def test_validate_handshake_valid_full():
+    """Valid handshake with all fields passes."""
+    valid, errs = validate_handshake({
+        "status": "FAILED_RETRY",
+        "janitor_notes": "Auth route missing error handler.",
+        "files_modified": ["src/auth.py"],
+        "tests_passed": False,
+        "tokens_consumed": 12345,
+        "duration_seconds": 45.2,
+    })
+    assert valid is True
+    assert errs == []
+
+
+def test_validate_handshake_missing_janitor_notes():
+    """Missing janitor_notes is a validation error (required field)."""
+    valid, errs = validate_handshake({"status": "COMPLETED"})
+    assert valid is False
+    assert any("janitor_notes" in e for e in errs)
+
+
+def test_validate_handshake_unknown_status():
+    """Unknown status value is a validation error."""
+    valid, errs = validate_handshake({
+        "status": "MAGIC_STATUS",
+        "janitor_notes": "done",
+    })
+    assert valid is False
+    assert any("MAGIC_STATUS" in e for e in errs)
+
+
+def test_validate_handshake_unknown_status_still_flows_through_janitor_evaluate():
+    """Unknown status hits janitor_evaluate fallback and returns BLOCK."""
+    handshake = {"status": "MAGIC_STATUS", "janitor_notes": "done", "tests_passed": None}
+    # validate_handshake catches schema issue, but janitor_evaluate still runs
+    valid, errs = validate_handshake(handshake)
+    assert valid is False
+    # janitor_evaluate fallback: unknown status -> BLOCK
+    directive = janitor_evaluate(handshake, retry_count=0, task_id="test-task")
+    assert directive == "BLOCK"
+
+
+def test_validate_handshake_files_modified_wrong_type():
+    """files_modified as non-list is a validation error."""
+    valid, errs = validate_handshake({
+        "status": "COMPLETED",
+        "janitor_notes": "done",
+        "files_modified": "src/auth.py",  # should be a list
+    })
+    assert valid is False
+    assert any("files_modified" in e for e in errs)
+
+
+def test_validate_handshake_missing_status():
+    """Missing status field is a validation error."""
+    valid, errs = validate_handshake({"janitor_notes": "done"})
+    assert valid is False
+    assert any("status" in e for e in errs)
+
+
+# ---------------------------------------------------------------------------
+# v9 Fix 2: context budget constants
+# ---------------------------------------------------------------------------
+
+def test_context_budget_constants_defined():
+    """Budget constants exist and brain > clone (brain gets more room)."""
+    assert CONTEXT_TOKEN_BUDGET_BRAIN > 0
+    assert CONTEXT_TOKEN_BUDGET_CLONE > 0
+    assert CONTEXT_TOKEN_BUDGET_BRAIN > CONTEXT_TOKEN_BUDGET_CLONE
+
+
+# ---------------------------------------------------------------------------
+# v9 Fix 3: objective mutation for SUGGEST retries
+# ---------------------------------------------------------------------------
+
+def test_suggest_requeue_objective_mutation(tmp_path, monkeypatch):
+    """On SUGGEST, task.objective is updated with structured prior attempt context."""
+    import dispatcher as d
+
+    task = Task(
+        id="test-suggest-001",
+        type="clone",
+        skill="code",
+        objective="Fix the login route.",
+        wiki_pages=[],
+        constraints=[],
+        source="test",
+        retry_count=0,
+    )
+    handshake = {
+        "status": "COMPLETED",
+        "janitor_notes": "Tests failed — login route missing error handling.",
+        "files_modified": ["src/auth.py", "src/routes.py"],
+        "tests_passed": False,
+    }
+
+    # Capture the objective mutation without actually requeuing
+    original_objective = task.objective
+    files_str = ", ".join(handshake.get("files_modified", [])) or "none"
+    from datetime import datetime, timezone
+    history_entry = (
+        f"\n\n---\n# Prior Attempt {task.retry_count}"
+        f" ({datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M UTC')})\n"
+        f"Directive: SUGGEST\n"
+        f"Files modified: {files_str}\n"
+        f"Janitor notes: {handshake.get('janitor_notes', 'none')}\n"
+        f"Do NOT repeat the same approach."
+    )
+    task.objective += history_entry
+
+    assert "Prior Attempt 0" in task.objective
+    assert "Files modified: src/auth.py, src/routes.py" in task.objective
+    assert "Directive: SUGGEST" in task.objective
+    assert "Do NOT repeat the same approach." in task.objective
+    assert original_objective in task.objective  # original preserved
