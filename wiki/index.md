@@ -1,7 +1,7 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-09
-> Total pages: 112
+> Total pages: 113
 > Sources ingested: 8 repos/articles + 1 architecture session + 14 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
 > Branch: main (merged from opus-build 2026-04-09, v0.9.0, commit 3f73f10)
 
@@ -138,6 +138,7 @@
 - [[janitor-opus-build-pre-merge]] — Janitor pre-merge gate on opus-build: SUGGEST, 0 BLOCKs after v9.1 fixes. Extended thinking enabled. test/ + raw/ excluded as FP patterns.
 - [[build-state-2026-04-09-v9-1]] — v9.1: teardown.ts execSync→execFileSync (6 calls), ratchet.ts execSync→execFileSync + tag validation, bare except narrowed. All shell injection surfaces closed.
 - [[build-state-2026-04-09-merged]] — Merged opus-build → main (commit 3f73f10). v0.9.0. 211 tests, TSC clean, 0 BLOCKs. Ready for single-machine testing. Pending: handshake schema, context size guard, conversation history persistence.
+- [[janitor-main-post-merge]] — Janitor on main (Haiku+extended, 2026-04-09): SUGGEST, 0 BLOCKs, ~64/100 adjusted. Real: bin/agent4.ts CLI stubs, missing lifecycle tests, example key string. 33 confirmed FPs.
 - [[decision-janitor-tiered-benchmark]] — Forge benchmark plan for 2-tier Janitor: Tier 1 (Haiku max/Sonnet medium) for routine scans, Tier 2 (Opus max+extended) for deep audits. 5 test cases, scoring matrix, routing decision gate.
 - [[review-skills-playbook]] — V4 Skills Playbook: 28-skill ceiling, 4-gate triage, 5-layer security (Docker sandbox, Nemotron LLM-on-LLM, Keychain scoping), Quarantine→Probation→Production pipeline, Forge owns lifecycle.
 - [[code-suggestions-skills]] — 7 concrete code changes: required_skills task field, provisionSkills() spawner, skills/ library, Docker sandbox flag, per-skill scopes.yaml, GitHub Actions gate, Janitor skill audit. Ordered by phase.

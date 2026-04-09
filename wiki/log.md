@@ -2,6 +2,10 @@
 
 Chronological record of all wiki operations. Append-only.
 
+## [2026-04-09] janitor | main post-merge audit (Haiku+extended)
+
+0 BLOCKs. SUGGEST gate. Adjusted score ~64/100. Real findings: bin/agent4.ts CLI stubs (3 unimplemented commands), missing tests for dispatcher.py + clone lifecycle, example secret string in plan-build-v1.md:662. 16 SUGGEST + 17 NOTE confirmed false positives (TEMPLATES path, bash conditionals, multi-line returns). Pages created: [[janitor-main-post-merge]]. Index updated to 113 pages.
+
 ## [2026-04-09] merge | opus-build → main (v0.9.0)
 
 Merge commit `3f73f10`. Branch opus-build merged to main after full gate sequence: Gemini review (10 action items), Opus review (7/10, 2 mandatory fixes), Janitor gate (Haiku+extended, SUGGEST, 0 BLOCKs). Pre-merge fixes: teardown.ts + ratchet.ts shell injection (execSync→execFileSync), bare except in dispatcher.py, quarantine purge, test/ FPs excluded. Single merge conflict: README.md (took opus-build version). 211 tests passing (160 Jest + 51 pytest), TSC clean. Operational: ready for single-machine testing. Pages created: [[build-state-2026-04-09-merged]]. Index updated to 112 pages.
