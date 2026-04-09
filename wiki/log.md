@@ -1,5 +1,9 @@
 # Wiki Log
 
+## [2026-04-09] fix | B1 + S2/S3/S4/S5 — template injection, tests, handshake enforcement
+
+Commit 2e777f4 (main). 100/100 tests passing. B1 fixed: Python dispatcher now injects all 5 template variables — {INJECT_WIKI_CONTEXT_HERE} (wiki context string, 500-token budget matching TS PromptBuilder) and {INJECT_ALLOWED_ENDPOINTS_HERE} (from scopes.yaml per skill; fallback api.anthropic.com). S2: token estimation unified to chars//3 everywhere (was //4 in read_file_safe, //3 in budget guard). S3: 11 tests added for brain/bridge.py — send cascade, broadcast, ping, chunking, singleton. S4: 20 tests added for tools/benchmark_score.py — parse, extract metrics, scoring, composite, task-A checks. S5: synthetic handshake auto-approval removed — clones exiting without handshake JSON now get FAILED_RETRY with explicit format instructions; BLOCK at MAX_RETRIES. Skipped: S1/S6/S7 (advisory validation, objective growth bound, remote dispatch backoff — low risk).
+
 ## [2026-04-09] janitor | Opus Tier 2 deep audit — v9 post-implementation review
 
 Commit c881c27 (main). 60/60 Python tests passing. 1 BLOCK: unfilled template variables (INJECT_WIKI_CONTEXT_HERE, INJECT_ALLOWED_ENDPOINTS_HERE) never replaced in Python dispatcher clone path — clones get literal placeholder strings and no network scope. 7 SUGGEST: advisory-only validation, token estimation inconsistency, no bridge.py tests, no benchmark_score.py tests, synthetic handshake auto-approves, unbounded objective growth, remote polling no backoff. 4 NOTE: stale comment, import alias, CLI stubs, example key string. TS/Python Janitor decision trees confirmed aligned. Health score: 40/100 (+40 from baseline 0). Pages created: [[janitor-audit-2026-04-09-v9]]. Index updated.
