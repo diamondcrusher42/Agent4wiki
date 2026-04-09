@@ -12,8 +12,7 @@
 //   3. git branch -d <branch> (prune the temporary branch)
 //   4. Remove from worktrees registry
 
-import { execSync } from 'child_process';
-import { execFile } from 'child_process';
+import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -83,17 +82,19 @@ export class CloneTeardown {
    */
   private async mergeWorktree(handle: WorktreeHandle): Promise<void> {
     try {
-      execSync(`git -C "${handle.path}" add -A`, { stdio: 'pipe' });
-      execSync(
-        `git -C "${handle.path}" commit -m "feat(clone/${handle.cloneId}): mission complete"`,
+      execFileSync('git', ['-C', handle.path, 'add', '-A'], { stdio: 'pipe' });
+      execFileSync(
+        'git',
+        ['-C', handle.path, 'commit', '-m', `feat(clone/${handle.cloneId}): mission complete`],
         { stdio: 'pipe' }
       );
     } catch {
       // Nothing to commit — worktree may not have produced files
     }
     try {
-      execSync(
-        `git -C "${REPO_ROOT}" merge "${handle.branch}" --no-ff -m "merge: clone/${handle.cloneId}"`,
+      execFileSync(
+        'git',
+        ['-C', REPO_ROOT, 'merge', handle.branch, '--no-ff', '-m', `merge: clone/${handle.cloneId}`],
         { stdio: 'pipe' }
       );
     } catch (err) {
@@ -106,7 +107,7 @@ export class CloneTeardown {
    */
   private async removeWorktree(handle: WorktreeHandle): Promise<void> {
     try {
-      execSync(`git -C "${REPO_ROOT}" worktree remove "${handle.path}" --force`, {
+      execFileSync('git', ['-C', REPO_ROOT, 'worktree', 'remove', handle.path, '--force'], {
         stdio: 'pipe',
       });
     } catch (err) {
@@ -116,7 +117,7 @@ export class CloneTeardown {
         if (fs.existsSync(handle.path)) {
           fs.rmSync(handle.path, { recursive: true });
         }
-        execSync(`git -C "${REPO_ROOT}" worktree prune`, { stdio: 'pipe' });
+        execFileSync('git', ['-C', REPO_ROOT, 'worktree', 'prune'], { stdio: 'pipe' });
       } catch {
         console.error(`[TEARDOWN] Manual cleanup also failed for ${handle.path}`);
       }
@@ -137,12 +138,12 @@ export class CloneTeardown {
    */
   private async pruneBranch(branch: string): Promise<void> {
     try {
-      execSync(`git -C "${REPO_ROOT}" branch -d "${branch}"`, { stdio: 'pipe' });
+      execFileSync('git', ['-C', REPO_ROOT, 'branch', '-d', branch], { stdio: 'pipe' });
     } catch {
       // Branch already merged/deleted or never existed — not fatal
       try {
         // Force delete if safe delete failed (e.g., unmerged branch after BLOCK)
-        execSync(`git -C "${REPO_ROOT}" branch -D "${branch}"`, { stdio: 'pipe' });
+        execFileSync('git', ['-C', REPO_ROOT, 'branch', '-D', branch], { stdio: 'pipe' });
       } catch {
         // Branch truly doesn't exist — that's fine
       }

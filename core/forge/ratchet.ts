@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { EvaluationOutcome } from './evaluator';
 import { ForgeMetricsDb } from './metrics_db';
 import { Janitor, AuditDirective } from '../janitor/auditor';
@@ -38,8 +38,9 @@ export class ForgeRatchet {
     const tag = `forge/promotion/${timestamp}`;
 
     // 1. Git tag for rollback
+    if (!/^[\w./-]+$/.test(tag)) throw new Error(`Invalid tag format: ${tag}`);
     try {
-      execSync(`git tag ${tag}`, { stdio: 'pipe' });
+      execFileSync('git', ['tag', tag], { stdio: 'pipe' });
     } catch (err) {
       console.error(`[FORGE RATCHET] Failed to create git tag: ${err}`);
     }
@@ -100,7 +101,7 @@ export class ForgeRatchet {
     if (audit.directive === AuditDirective.BLOCK) {
       console.warn(`[FORGE RATCHET] Janitor BLOCK on promotion — reverting ${templateName}`);
       try {
-        execSync(`git checkout ${tag} -- "${productionPath}"`, { stdio: 'pipe' });
+        execFileSync('git', ['checkout', tag, '--', productionPath], { stdio: 'pipe' });
       } catch {
         console.error(`[FORGE RATCHET] Auto-revert failed for ${productionPath}`);
       }
