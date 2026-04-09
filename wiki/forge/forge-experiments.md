@@ -169,6 +169,42 @@ All three models: identical findings, identical false positive, identical health
 
 **Next queue item:** Retest Haiku --max WITH extended thinking prompt to answer: is it the model or the prompt that unlocks semantic findings?
 
+### [2026-04-09] Haiku --max + extended thinking — semantic gap quantified
+
+**Verdict: Prompt matters, model matters more. Haiku+extended = 33% of Opus findings, 18× cheaper.**
+
+| Metric | Haiku --max | Haiku+extended | Opus+extended |
+|---|---|---|---|
+| Tool findings | 21 | 21 | 21 |
+| Semantic extras | 0 | +12 | +36 |
+| Total | 21 | 33 | 57 |
+| Tokens | 28,200 | 58,998 | 107,550 |
+| Duration | 31s | 108s | 232s |
+| Cost | ~$0.01 | ~$0.08 | ~$1.50 |
+
+**What Haiku+extended caught (that plain Haiku missed):**
+- security_monitor.py:221 — silent exception swallow in security gate ✓
+- telegram_server.ts:47-49 — credential format in error messages
+- garmin_pull.py — token cache no TTL validation
+- Missing type hints, broad exception catches, hardcoded pricing, env parsing fragility
+
+**What Haiku+extended still MISSED (Opus-only finds):**
+- wachete.py:144 — hardcoded personal chat_id 564661663 (data leak — Opus's #1 critical)
+- qdrant_memory.py:61 — embedding dimension mismatch (silent garbage search)
+- security_monitor.py:398 — logic bug in incomplete scan flag
+- system_check.sh:35 — machine-specific nvm path
+- send_telegram() reimplemented 6× + load_env() 4× (DRY violations)
+- StrictHostKeyChecking=no (MitM risk)
+- Shell token injection via variable interpolation
+- MD5 collision risk at scale
+
+**Conclusion:** Extended thinking prompt unlocks semantic reasoning in Haiku, but Opus still finds 3× more issues. The DATA LEAK (hardcoded chat_id) was Opus-only. For security-sensitive scans, Opus is non-negotiable.
+
+**Routing recommendation:**
+- Tier 1 (default): Haiku --max = structural only, $0.01
+- Tier 1.5 (new): Haiku --max + "think hard" prompt = structural + basic semantic, $0.08
+- Tier 2 (security/critical): Opus --max + extended = full semantic, $1.50
+
 ### [2026-04-09] Janitor false positive tuning — agent-janitor v1.0.1
 
 **Not a model benchmark** — this was a pattern/config tuning experiment based on real scan.
