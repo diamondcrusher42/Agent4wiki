@@ -1,5 +1,9 @@
 # Wiki Log
 
+## [2026-04-09] janitor | Opus Tier 2 re-audit — post-fixes health check
+
+Commit 444feec (main). 100/100 tests passing. All 5 targeted fixes verified: B1 (template variables), S2 (token estimation), S3 (bridge tests), S4 (benchmark tests), S5 (handshake enforcement). 0 BLOCKs. 3 new SUGGEST: stale TASK.md at repo root, silent scopes.yaml load failure, TASK.md written with unreplaced INJECT_ALLOWED_PATHS_HERE. 3 carried NOTEs (S1/S6/S7 still absent, low risk). Secrets scan clean. Health score: 82/100 (+42 from 40). Page created: [[janitor-audit-2026-04-09-post-fixes]].
+
 ## [2026-04-09] fix | B1 + S2/S3/S4/S5 — template injection, tests, handshake enforcement
 
 Commit 2e777f4 (main). 100/100 tests passing. B1 fixed: Python dispatcher now injects all 5 template variables — {INJECT_WIKI_CONTEXT_HERE} (wiki context string, 500-token budget matching TS PromptBuilder) and {INJECT_ALLOWED_ENDPOINTS_HERE} (from scopes.yaml per skill; fallback api.anthropic.com). S2: token estimation unified to chars//3 everywhere (was //4 in read_file_safe, //3 in budget guard). S3: 11 tests added for brain/bridge.py — send cascade, broadcast, ping, chunking, singleton. S4: 20 tests added for tools/benchmark_score.py — parse, extract metrics, scoring, composite, task-A checks. S5: synthetic handshake auto-approval removed — clones exiting without handshake JSON now get FAILED_RETRY with explicit format instructions; BLOCK at MAX_RETRIES. Skipped: S1/S6/S7 (advisory validation, objective growth bound, remote dispatch backoff — low risk).

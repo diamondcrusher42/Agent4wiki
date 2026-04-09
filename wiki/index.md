@@ -3,7 +3,7 @@
 > Last updated: 2026-04-09
 > Total pages: 114
 > Sources ingested: 8 repos/articles + 1 architecture session + 14 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
-> Branch: main (v9 post-fixes, commit 2e777f4 — 100/100 tests, 0 BLOCKs)
+> Branch: main (v9 post-fixes, commit 444feec — 100/100 tests, 0 BLOCKs, health 82/100)
 
 ## Templates
 
@@ -140,6 +140,7 @@
 - [[build-state-2026-04-09-merged]] — Merged opus-build → main (commit 3f73f10). v0.9.0. 211 tests, TSC clean, 0 BLOCKs. Ready for single-machine testing. Pending: handshake schema, context size guard, conversation history persistence.
 - [[janitor-main-post-merge]] — Janitor on main (Haiku+extended, 2026-04-09): SUGGEST, 0 BLOCKs, ~64/100 adjusted. Real: bin/agent4.ts CLI stubs, missing lifecycle tests, example key string. 33 confirmed FPs.
 - [[janitor-audit-2026-04-09-v9]] — Janitor Opus Tier 2 deep audit: v9 post-implementation review. 1 BLOCK (unfilled template vars), 7 SUGGEST, 4 NOTE. Score: 40/100 (+40 from baseline).
+- [[janitor-audit-2026-04-09-post-fixes]] — Janitor Opus Tier 2 re-audit: post-fixes health check. 0 BLOCK, 3 SUGGEST, 3 NOTE. Score: 82/100 (+42). All 5 targeted fixes verified.
 - [[fixes-2026-04-09-post-janitor]] — Post-Janitor fixes: B1 template injection (WIKI_CONTEXT+ALLOWED_ENDPOINTS), S2 token //3 unified, S3 bridge.py 11 tests, S4 benchmark_score.py 20 tests, S5 synthetic handshake removed. 100/100 tests. Score est. 75+/100.
 - [[decision-janitor-tiered-benchmark]] — Forge benchmark plan for 2-tier Janitor: Tier 1 (Haiku max/Sonnet medium) for routine scans, Tier 2 (Opus max+extended) for deep audits. 5 test cases, scoring matrix, routing decision gate.
 - [[review-skills-playbook]] — V4 Skills Playbook: 28-skill ceiling, 4-gate triage, 5-layer security (Docker sandbox, Nemotron LLM-on-LLM, Keychain scoping), Quarantine→Probation→Production pipeline, Forge owns lifecycle.
