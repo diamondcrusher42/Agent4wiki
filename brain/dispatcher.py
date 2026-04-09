@@ -87,6 +87,35 @@ except (FileNotFoundError, KeyError, json.JSONDecodeError):
 CONTEXT_TOKEN_BUDGET_BRAIN = 8000
 CONTEXT_TOKEN_BUDGET_CLONE = 6000
 
+# B1: Load allowed endpoints per skill from scopes.yaml (mirrors TS scopes.yaml path)
+_SCOPES_PATH = Path(__file__).parent.parent / 'core' / 'keychain' / 'config' / 'scopes.yaml'
+try:
+    import re as _re
+    def _load_scopes_yaml(path: Path) -> dict:
+        """Minimal YAML parser for scopes.yaml — reads endpoints per skill."""
+        scopes: dict = {}
+        current_skill: str | None = None
+        in_endpoints = False
+        for line in path.read_text().splitlines():
+            if not line.strip() or line.strip().startswith('#'):
+                continue
+            if not line.startswith(' ') and line.rstrip().endswith(':'):
+                current_skill = line.strip().rstrip(':')
+                scopes[current_skill] = []
+                in_endpoints = False
+            elif current_skill and line.strip() == 'endpoints:':
+                in_endpoints = True
+            elif current_skill and in_endpoints and line.strip().startswith('- '):
+                scopes[current_skill].append(line.strip()[2:])
+            elif current_skill and not line.startswith('  '):
+                in_endpoints = False
+        return scopes
+    _SKILL_ENDPOINTS = _load_scopes_yaml(_SCOPES_PATH)
+except Exception:
+    _SKILL_ENDPOINTS = {}
+
+_DEFAULT_ENDPOINTS = ['api.anthropic.com']  # mirrors TS planner.ts fallback
+
 # A1: Sensitive env keys that must never leak to clones
 SENSITIVE_ENV_KEYS = {
     'VAULT_MASTER_PASSWORD',
@@ -292,9 +321,38 @@ def assemble_context(task: Task) -> str:
         # Inject objective
         template = template.replace("{INJECT_TASK_HERE}", task.objective)
 
+        # B1 fix: inject allowed endpoints (mirrors TS PromptBuilder + scopes.yaml)
+        endpoints = _SKILL_ENDPOINTS.get(task.skill, _DEFAULT_ENDPOINTS)
+        template = template.replace("{INJECT_ALLOWED_ENDPOINTS_HERE}", "\n".join(endpoints))
+
+        # B1 fix: build wiki context string and inject into template
+        # Mirrors TS PromptBuilder.loadWikiContext() — 500-token budget, truncated at line boundary
+        wiki_sections: list[str] = []
+        wiki_total_chars = 0
+        wiki_char_budget = 2000  # ~500 tokens, same as TS
+        for page_name in task.wiki_pages:
+            page_path = BASE_DIR / "wiki" / f"{page_name}.md"
+            if not page_path.exists():
+                for subdir in ["segments", "concepts", "tools", "entities", "decisions"]:
+                    alt = BASE_DIR / "wiki" / subdir / f"{page_name}.md"
+                    if alt.exists():
+                        page_path = alt
+                        break
+            content = read_file_safe(page_path, max_tokens=500)
+            if content:
+                excerpt = content[:800]  # 800-char per-page cap, same as TS
+                if wiki_total_chars + len(excerpt) > wiki_char_budget:
+                    log.warning(f"[{task.id}] Wiki context budget reached at '{page_name}' — truncating")
+                    break
+                wiki_sections.append(f"## {page_name}\n{excerpt}")
+                wiki_total_chars += len(excerpt)
+        wiki_context = "\n\n---\n\n".join(wiki_sections)
+        template = template.replace("{INJECT_WIKI_CONTEXT_HERE}", wiki_context or "(no wiki context)")
+
         parts.append(template)
 
-        # Inject requested wiki pages
+        # Also append wiki pages as separate sections for models that benefit from
+        # seeing context outside the template block (budget guard handles overflow)
         for page_name in task.wiki_pages:
             page_path = BASE_DIR / "wiki" / f"{page_name}.md"
             if not page_path.exists():

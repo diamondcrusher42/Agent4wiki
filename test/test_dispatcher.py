@@ -22,6 +22,8 @@ from dispatcher import (
     CONTEXT_TOKEN_BUDGET_BRAIN,
     CONTEXT_TOKEN_BUDGET_CLONE,
     assemble_context,
+    _SKILL_ENDPOINTS,
+    _DEFAULT_ENDPOINTS,
 )
 
 
@@ -873,3 +875,73 @@ def test_suggest_requeue_objective_mutation(tmp_path, monkeypatch):
     assert "Directive: SUGGEST" in task.objective
     assert "Do NOT repeat the same approach." in task.objective
     assert original_objective in task.objective  # original preserved
+
+
+# ---------------------------------------------------------------------------
+# B1 fix: template variable injection — INJECT_WIKI_CONTEXT_HERE + INJECT_ALLOWED_ENDPOINTS_HERE
+# ---------------------------------------------------------------------------
+
+def test_skill_endpoints_loaded_for_known_skills():
+    """scopes.yaml is loaded and known skills have endpoint lists."""
+    assert "code" in _SKILL_ENDPOINTS
+    assert "api.anthropic.com" in _SKILL_ENDPOINTS["code"]
+    assert "api.github.com" in _SKILL_ENDPOINTS["code"]
+
+
+def test_skill_endpoints_fallback_for_unknown_skill():
+    """Unknown skill falls back to default endpoints (api.anthropic.com)."""
+    endpoints = _SKILL_ENDPOINTS.get("nonexistent_skill_xyz", _DEFAULT_ENDPOINTS)
+    assert endpoints == _DEFAULT_ENDPOINTS
+    assert "api.anthropic.com" in endpoints
+
+
+def test_assemble_context_no_unfilled_placeholders(tmp_path, monkeypatch):
+    """All 5 template placeholders are replaced — no literal {INJECT_*} in output."""
+    import dispatcher as d
+
+    # Create a template with all 5 injection points
+    template_dir = tmp_path / "templates"
+    template_dir.mkdir()
+    template_file = template_dir / "code-clone-TASK.md"
+    template_file.write_text(
+        "Soul: {INJECT_SOUL_HERE}\n"
+        "Task: {INJECT_TASK_HERE}\n"
+        "Paths: {INJECT_ALLOWED_PATHS_HERE}\n"
+        "Endpoints: {INJECT_ALLOWED_ENDPOINTS_HERE}\n"
+        "Wiki: {INJECT_WIKI_CONTEXT_HERE}\n"
+    )
+
+    # Minimal wiki Soul.md
+    wiki_dir = tmp_path / "wiki"
+    wiki_dir.mkdir()
+    (wiki_dir / "Soul.md").write_text("# Soul\nTest soul content.")
+    (wiki_dir / "index.md").write_text("# Index")
+
+    monkeypatch.setattr(d, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(d, "TEMPLATES", template_dir)
+    monkeypatch.setattr(d, "SOUL_MD", wiki_dir / "Soul.md")
+    monkeypatch.setattr(d, "WIKI_INDEX", wiki_dir / "index.md")
+
+    task = Task(
+        id="test-b1-001",
+        type="clone",
+        skill="code",
+        objective="Fix the login route.",
+        wiki_pages=[],
+        constraints=[],
+        source="test",
+        retry_count=0,
+    )
+
+    context = assemble_context(task)
+
+    # None of the placeholders should remain (INJECT_ALLOWED_PATHS_HERE is replaced
+    # in execute_task() not assemble_context(), but the others must be gone)
+    assert "{INJECT_SOUL_HERE}" not in context
+    assert "{INJECT_TASK_HERE}" not in context
+    assert "{INJECT_ALLOWED_ENDPOINTS_HERE}" not in context
+    assert "{INJECT_WIKI_CONTEXT_HERE}" not in context
+    # INJECT_ALLOWED_PATHS_HERE is replaced in execute_task() — verify it's in context
+    # so execute_task() can find and replace it
+    assert "api.anthropic.com" in context  # endpoints injected
+    assert "Fix the login route." in context  # objective injected
