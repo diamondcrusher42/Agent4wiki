@@ -111,7 +111,13 @@ try:
                 in_endpoints = False
         return scopes
     _SKILL_ENDPOINTS = _load_scopes_yaml(_SCOPES_PATH)
-except Exception:
+except Exception as _e:
+    import logging as _log_scopes
+    _log_scopes.getLogger("dispatcher").warning(
+        f"[SCOPES] Failed to load {_SCOPES_PATH}: {_e} — "
+        "all skills will use default endpoints (api.anthropic.com). "
+        "Check core/keychain/config/scopes.yaml."
+    )
     _SKILL_ENDPOINTS = {}
 
 _DEFAULT_ENDPOINTS = ['api.anthropic.com']  # mirrors TS planner.ts fallback
@@ -556,12 +562,13 @@ def execute_task(task: Task) -> dict:
             if not worktree_path:
                 return {"status": "FAILED_RETRY", "error": "Could not create worktree"}
 
-            # Write TASK.md into worktree
+            # Inject allowed path BEFORE writing TASK.md — clone reads from disk,
+            # so the file must contain the real path, not the placeholder.
+            context = context.replace("{INJECT_ALLOWED_PATHS_HERE}", str(worktree_path))
+
+            # Write TASK.md into worktree (all placeholders now resolved)
             task_md = worktree_path / "TASK.md"
             task_md.write_text(context, encoding="utf-8")
-
-            # Inject allowed path into template
-            context = context.replace("{INJECT_ALLOWED_PATHS_HERE}", str(worktree_path))
 
         # 3. Provision credentials
         if task.required_keys:
