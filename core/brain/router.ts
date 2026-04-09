@@ -1,4 +1,4 @@
-// core/brain/dispatcher.ts
+// core/brain/router.ts
 // Phase 4 — Brain routing switchboard
 //
 // Separation of concerns from planner.ts:

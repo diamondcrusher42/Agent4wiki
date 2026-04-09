@@ -19,6 +19,13 @@ const SOUL_PATH = process.env.SOUL_PATH || 'wiki/Soul.md';
 const SOUL_PRIVATE_PATH = process.env.SOUL_PRIVATE_PATH || 'state/user_agent/soul-private.md';
 const WIKI_PATH = 'wiki';
 
+function truncateAtLineBoundary(content: string, maxChars: number): string {
+  if (content.length <= maxChars) return content;
+  const truncated = content.slice(0, maxChars);
+  const lastNewline = truncated.lastIndexOf('\n');
+  return lastNewline > 0 ? truncated.slice(0, lastNewline) + '\n...' : truncated + '...';
+}
+
 export class PromptBuilder {
 
   /**
@@ -34,11 +41,11 @@ export class PromptBuilder {
     const wikiContext = await this.loadWikiContext(brief.wikiContext);
 
     return template
-      .replace('{INJECT_SOUL_HERE}', soul)
-      .replace('{INJECT_ALLOWED_PATHS_HERE}', brief.allowedPaths.join('\n'))
-      .replace('{INJECT_ALLOWED_ENDPOINTS_HERE}', brief.allowedEndpoints.join('\n'))
-      .replace('{INJECT_WIKI_CONTEXT_HERE}', wikiContext)
-      .replace('{INJECT_TASK_HERE}', brief.objective);
+      .replaceAll('{INJECT_SOUL_HERE}', soul)
+      .replaceAll('{INJECT_ALLOWED_PATHS_HERE}', brief.allowedPaths.join('\n'))
+      .replaceAll('{INJECT_ALLOWED_ENDPOINTS_HERE}', brief.allowedEndpoints.join('\n'))
+      .replaceAll('{INJECT_WIKI_CONTEXT_HERE}', wikiContext)
+      .replaceAll('{INJECT_TASK_HERE}', brief.objective);
   }
 
   /**
@@ -65,17 +72,59 @@ export class PromptBuilder {
    * Load requested wiki pages into a single context block.
    * Total budget: ~500 tokens. Pages truncated if over budget.
    */
-  private async loadWikiContext(pageNames: string[]): Promise<string> {
+  public async loadWikiContext(pageNames: string[]): Promise<string> {
+    const MAX_TOTAL_CHARS = 2000; // ~500 tokens total budget
     const sections: string[] = [];
+    let totalChars = 0;
+
     for (const pageName of pageNames) {
-      const pagePath = path.join(WIKI_PATH, `${pageName}.md`);
-      try {
-        const content = await fs.promises.readFile(pagePath, 'utf-8');
-        sections.push(`## ${pageName}\n${content.slice(0, 800)}`); // ~200 tokens each
-      } catch {
+      const resolved = this.resolveWikiPage(pageName);
+      if (!resolved) {
         console.warn(`[PROMPT_BUILDER] Wiki page not found: ${pageName}`);
+        continue;
+      }
+      try {
+        const content = await fs.promises.readFile(resolved, 'utf-8');
+        const excerpt = truncateAtLineBoundary(content, 800);
+        if (totalChars + excerpt.length > MAX_TOTAL_CHARS) {
+          console.warn(`[PROMPT_BUILDER] Wiki budget reached at ${pageName} — truncating context`);
+          break;
+        }
+        sections.push(`## ${pageName}\n${excerpt}`);
+        totalChars += excerpt.length;
+      } catch {
+        console.warn(`[PROMPT_BUILDER] Could not read wiki page: ${pageName}`);
       }
     }
     return sections.join('\n\n---\n\n');
+  }
+
+  /**
+   * Resolve a wiki page name to its actual file path.
+   * Recursively searches all wiki subdirectories.
+   */
+  private resolveWikiPage(pageName: string): string | null {
+    return this.findFileRecursive(WIKI_PATH, `${pageName}.md`);
+  }
+
+  /**
+   * Recursively search a directory tree for a file by name.
+   */
+  private findFileRecursive(dir: string, filename: string): string | null {
+    if (!fs.existsSync(dir)) return null;
+    try {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          const found = this.findFileRecursive(full, filename);
+          if (found) return found;
+        } else if (entry.name === filename) {
+          return full;
+        }
+      }
+    } catch {
+      // Permission errors, missing dirs — return null
+    }
+    return null;
   }
 }

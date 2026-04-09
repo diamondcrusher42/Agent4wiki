@@ -33,11 +33,14 @@ File structure expected:
 
 import json
 import os
+import re
 import sys
 import time
 import shutil
+import socket
 import subprocess
 import logging
+import threading
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
@@ -51,6 +54,15 @@ from bridge import get_bridge, BridgeError
 # Configuration
 # ---------------------------------------------------------------------------
 
+# A2: Load warn_keywords from shared heuristics config
+_HEURISTICS_PATH = Path(__file__).parent.parent / 'core' / 'janitor' / 'config' / 'heuristics.json'
+try:
+    import json as _json_h
+    with open(_HEURISTICS_PATH) as _f:
+        WARN_KEYWORDS = _json_h.load(_f)['warn_keywords']
+except (FileNotFoundError, KeyError, json.JSONDecodeError):
+    WARN_KEYWORDS = ['todo:', 'hacky', 'tech debt', 'temporary', 'fragile', 'slow', 'fixme', 'workaround']
+
 BASE_DIR = Path(os.environ.get("AGENT_BASE_DIR", Path(__file__).parent.parent.resolve()))
 INBOX     = BASE_DIR / "brain" / "inbox"
 ACTIVE    = BASE_DIR / "brain" / "active"
@@ -62,10 +74,106 @@ USER_STATE = BASE_DIR / "state" / "user_agent" / "state.json"
 SOUL_MD   = BASE_DIR / "wiki" / "Soul.md"
 EVENT_LOG = BASE_DIR / "events" / "dispatcher.jsonl"
 
-MAX_RETRIES = 3  # Janitor circuit breaker
+# C1: Load MAX_RETRIES from shared config
+_CLONE_CONFIG_PATH = Path(__file__).parent.parent / 'core' / 'config' / 'clone_config.json'
+try:
+    with open(_CLONE_CONFIG_PATH) as _f_config:
+        _clone_config = json.load(_f_config)
+    MAX_RETRIES = _clone_config['maxRetries']
+except (FileNotFoundError, KeyError, json.JSONDecodeError):
+    MAX_RETRIES = 3  # Fallback
+
+# A1: Sensitive env keys that must never leak to clones
+SENSITIVE_ENV_KEYS = {
+    'VAULT_MASTER_PASSWORD',
+    'ANTHROPIC_API_KEY',
+    'TELEGRAM_BOT_TOKEN',
+    'TELEGRAM_CHAT_ID',
+}
+
+
+def build_clone_env(extra: dict | None = None) -> dict:
+    """Build a sanitized env dict for clone subprocesses, stripping sensitive keys."""
+    env = {k: v for k, v in os.environ.items() if k not in SENSITIVE_ENV_KEYS}
+    if extra:
+        env.update(extra)
+    return env
 
 POLL_INTERVAL = 2  # seconds between inbox checks in watch mode
 MAX_CONCURRENT = 3  # max simultaneous clone sessions
+FLEET_REGISTRY = BASE_DIR / "state" / "fleet" / "registry.json"
+
+# ---------------------------------------------------------------------------
+# Fleet routing (Phase 6B)
+# ---------------------------------------------------------------------------
+
+def load_fleet_registry() -> list:
+    """Returns list of {node_id, host, user, capabilities, ssh_key}."""
+    if not FLEET_REGISTRY.exists():
+        return []
+    try:
+        with open(FLEET_REGISTRY) as f:
+            data = json.load(f)
+            # Support both {nodes: [...]} and [...] formats
+            if isinstance(data, list):
+                return data
+            return data.get("nodes", [])
+    except (json.JSONDecodeError, KeyError):
+        return []
+
+
+def is_local_node(target_node: str) -> bool:
+    """Returns True if target_node matches current hostname."""
+    return target_node in ("", "local", socket.gethostname())
+
+
+def validate_task_id(task_id: str) -> str:
+    """Validate task ID contains only safe characters (alphanumeric, dash, underscore)."""
+    if not re.match(r'^[\w-]+$', task_id):
+        raise ValueError(f"Invalid task ID: {task_id!r} — must be alphanumeric/dash/underscore only")
+    return task_id
+
+
+def dispatch_remote(task: dict, node: dict) -> dict:
+    """
+    SSH into fleet node, write task.json to its inbox, wait for result.
+    Returns the handshake JSON from the remote clone.
+
+    Security: uses scp via temp file to avoid shell injection through task JSON.
+    Validates task ID to prevent path traversal.
+    """
+    import tempfile
+
+    task_id = validate_task_id(task['id'])
+
+    # Write to temp file — no shell escaping needed
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(task, f)
+        tmp_path = f.name
+
+    try:
+        remote_inbox = f"{node['user']}@{node['host']}:~/agent4/brain/inbox/{task_id}.json"
+        subprocess.run(
+            ["scp", "-i", node["ssh_key"], tmp_path, remote_inbox],
+            check=True, timeout=15
+        )
+    finally:
+        os.unlink(tmp_path)
+
+    # Poll for result (max 10 minutes)
+    result_path = f"{node['user']}@{node['host']}:~/agent4/brain/completed/{task_id}.json"
+    local_result = f"/tmp/remote-result-{task_id}.json"
+    for _ in range(120):  # 120 x 5s = 10 min
+        time.sleep(5)
+        result = subprocess.run(
+            ["scp", "-i", node["ssh_key"], result_path, local_result],
+            capture_output=True
+        )
+        if result.returncode == 0:
+            with open(local_result) as f:
+                return json.load(f)
+    raise TimeoutError(f"Remote node {node['node_id']} did not complete task within 10 minutes")
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -90,8 +198,10 @@ class Task:
     required_keys: list = field(default_factory=list)  # credentials needed from Keychain
     wiki_pages: list = field(default_factory=list)  # specific wiki pages to inject as context
     constraints: list = field(default_factory=list)  # things NOT to do
+    model: str = "claude-sonnet-4-6"  # Sonnet baseline — Forge varies this for A/B
     created_at: str = ""
     timeout_minutes: int = 30
+    retry_count: int = 0  # incremented on SUGGEST re-queue
 
     def __post_init__(self):
         if not self.created_at:
@@ -160,7 +270,11 @@ def assemble_context(task: Task) -> str:
 
     elif task.type == "clone":
         # Clone gets skill template with injected variables
-        template_path = TEMPLATES / f"{task.skill}.md"
+        # Map skill to template filename — matches spawner.ts convention (<skill>-task.md)
+        # Special case: the canonical code template is code-clone-TASK.md
+        skill_template_map = {"code": "code-clone-TASK.md"}
+        template_filename = skill_template_map.get(task.skill, f"{task.skill}-task.md")
+        template_path = TEMPLATES / template_filename
         if template_path.exists():
             template = template_path.read_text()
         else:
@@ -169,10 +283,10 @@ def assemble_context(task: Task) -> str:
 
         # Inject soul.md into template
         soul = read_file_safe(SOUL_MD, max_tokens=200)
-        template = template.replace("{INJECT_SOUL_MD_HERE}", soul or "(no soul.md found)")
+        template = template.replace("{INJECT_SOUL_HERE}", soul or "(no soul.md found)")
 
         # Inject objective
-        template = template.replace("{INJECT_BRAIN_DELEGATED_TASK_HERE}", task.objective)
+        template = template.replace("{INJECT_TASK_HERE}", task.objective)
 
         parts.append(template)
 
@@ -209,9 +323,11 @@ def create_worktree(task: Task) -> Optional[Path]:
     if task.type != "clone":
         return None
 
+    validate_task_id(task.id)
+
     worktree_name = f"clone-{task.skill}-{task.id}"
     branch_name = f"task/{task.id}"
-    worktree_path = BASE_DIR.parent / worktree_name
+    worktree_path = BASE_DIR / "state" / "worktrees" / worktree_name
 
     if worktree_path.exists():
         log.warning(f"Worktree already exists: {worktree_path}")
@@ -281,42 +397,42 @@ def launch_session(task: Task, context: str, worktree_path: Optional[Path] = Non
     """
     cwd = str(worktree_path) if worktree_path else str(BASE_DIR)
 
-    # Write context to a temporary prompt file in the working directory
+    # B3 (v9): Write prompt file inside try/finally to guarantee cleanup on all error paths
     prompt_file = Path(cwd) / ".dispatcher-prompt.md"
-    prompt_file.write_text(context, encoding="utf-8")
-
-    log.info(f"Launching {task.type} session for task {task.id} in {cwd}")
-
     try:
+        prompt_file.write_text(context, encoding="utf-8")
+
+        log.info(f"Launching {task.type} session for task {task.id} in {cwd}")
+
+        cmd = ["claude", "--model", task.model, "--print", "--dangerously-skip-permissions",
+               "-p", f"@{prompt_file}"]
+        env = build_clone_env({"CLAUDE_MODEL": task.model})
         result = subprocess.run(
-            ["claude", "--print", "--dangerously-skip-permissions",
-             "-p", context],
+            cmd,
             cwd=cwd,
             capture_output=True,
             text=True,
             timeout=task.timeout_minutes * 60,
+            env=env,
         )
-
-        # Clean up prompt file
-        if prompt_file.exists():
-            prompt_file.unlink()
 
         return {
             "status": "COMPLETED" if result.returncode == 0 else "FAILED_RETRY",
-            "stdout": result.stdout[-2000:] if result.stdout else "",  # last 2000 chars
+            "stdout_full": result.stdout or "",  # keep full for handshake extraction
+            "stdout": result.stdout[-2000:] if result.stdout else "",  # last 2000 chars for storage
             "stderr": result.stderr[-1000:] if result.stderr else "",
             "returncode": result.returncode,
         }
 
     except subprocess.TimeoutExpired:
-        if prompt_file.exists():
-            prompt_file.unlink()
         return {"status": "FAILED_RETRY", "error": f"Timeout after {task.timeout_minutes} minutes"}
 
     except FileNotFoundError:
+        return {"status": "FAILED_REQUIRE_HUMAN", "error": "claude CLI not found on PATH"}
+
+    finally:
         if prompt_file.exists():
             prompt_file.unlink()
-        return {"status": "FAILED_REQUIRE_HUMAN", "error": "claude CLI not found on PATH"}
 
 
 def execute_task(task: Task) -> dict:
@@ -347,7 +463,7 @@ def execute_task(task: Task) -> dict:
             task_md.write_text(context, encoding="utf-8")
 
             # Inject allowed path into template
-            context = context.replace("{INJECT_ALLOWED_PATH_HERE}", str(worktree_path))
+            context = context.replace("{INJECT_ALLOWED_PATHS_HERE}", str(worktree_path))
 
         # 3. Provision credentials
         if task.required_keys:
@@ -439,6 +555,168 @@ def notify_human(task, directive: str, handshake: dict):
 
 
 # ---------------------------------------------------------------------------
+# Janitor integration (Python-side MVP)
+# ---------------------------------------------------------------------------
+
+def read_handshake_file(task_id: str) -> Optional[dict]:
+    """
+    B1: Read handshake from file written by runner.ts.
+    Falls back to None if file doesn't exist.
+    """
+    handshake_path = BASE_DIR / "state" / "handshakes" / f"{task_id}.json"
+    if handshake_path.exists():
+        try:
+            with open(handshake_path) as f:
+                data = json.load(f)
+            handshake_path.unlink()  # clean up after reading
+            return data
+        except (json.JSONDecodeError, OSError):
+            pass
+    return None
+
+
+def extract_handshake(output: str) -> Optional[dict]:
+    """Extract the JSON handshake block from clone stdout.
+
+    The clone MUST output its JSON handshake as the final line of stdout.
+    We reverse-iterate to find the last line starting with '{', then JSON.parse it.
+    """
+    if not output:
+        return None
+    lines = output.strip().split("\n")
+    for line in reversed(lines):
+        stripped = line.strip()
+        if stripped.startswith("{"):
+            try:
+                obj = json.loads(stripped)
+                if "status" in obj:
+                    return obj
+            except json.JSONDecodeError:
+                continue
+    # Fallback: regex scan for JSON blocks containing "status"
+    matches = re.findall(r'\{[^{}]*"status"[^{}]*\}', output, re.DOTALL)
+    if matches:
+        try:
+            return json.loads(matches[-1])
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
+def janitor_evaluate(handshake: dict, retry_count: int, task_id: str) -> str:
+    """
+    Python-side Janitor evaluation — aligned exactly with auditor.ts decision tree.
+    Returns: "NOTE" | "SUGGEST" | "BLOCK"
+
+    Decision order (matches auditor.ts evaluateMission):
+    1. Circuit breaker (retries >= MAX_RETRIES) -> BLOCK
+    2. BLOCKED_IMPOSSIBLE -> BLOCK
+    3. tests_passed === false -> BLOCK (regardless of status)
+    4. FAILED_REQUIRE_HUMAN -> BLOCK
+    5. Structural checks -> SUGGEST
+    6. COMPLETED clean -> NOTE
+    7. FAILED_RETRY (retries left) -> SUGGEST
+    8. Fallback -> BLOCK
+    """
+    status = handshake.get("status", "FAILED_REQUIRE_HUMAN")
+
+    # 1. Circuit breaker
+    if retry_count >= MAX_RETRIES:
+        return "BLOCK"
+
+    # 2. BLOCKED_IMPOSSIBLE — before any status-specific branching
+    if status == "BLOCKED_IMPOSSIBLE":
+        return "BLOCK"
+
+    # 3. tests_passed === false -> BLOCK (matches auditor.ts priority)
+    if handshake.get("tests_passed") is False:
+        return "BLOCK"
+
+    # 4. FAILED_REQUIRE_HUMAN
+    if status == "FAILED_REQUIRE_HUMAN":
+        return "BLOCK"
+
+    # 5-6. COMPLETED path — structural checks then NOTE
+    if status == "COMPLETED":
+        notes = handshake.get("janitor_notes", "").lower()
+        files = handshake.get("files_modified", [])
+
+        # Structural checks (mirror of auditor.ts detectStructuralIssue)
+        if len(files) > 5 and re.search(r"also fixed|while i was at it|out of scope", notes):
+            log.warning(f"[JANITOR] SCOPE CREEP detected in {task_id}")
+            return "SUGGEST"
+
+        # Shared config mutation
+        shared_configs = [f for f in files if re.search(r"(tsconfig|package\.json|\.gitignore|CLAUDE\.md|\.env\.example)", f)]
+        if shared_configs:
+            return "SUGGEST"
+
+        # Performance concern
+        if re.search(r"(slow|O\(n..\)|timeout|perf|bottleneck)", notes, re.IGNORECASE):
+            return "SUGGEST"
+
+        if any(kw in notes for kw in WARN_KEYWORDS):
+            log.warning(f"[JANITOR] ARCHITECTURAL SMELL in {task_id}: {notes[:100]}")
+            return "SUGGEST"
+
+        return "NOTE"
+
+    # 7. FAILED_RETRY with retries left
+    if status == "FAILED_RETRY" and retry_count < MAX_RETRIES - 1:
+        return "SUGGEST"
+
+    return "BLOCK"
+
+
+def write_forge_record(task: "Task", directive: str, handshake: dict):
+    """Write a ForgeRecord to forge/events.jsonl for Forge consumption."""
+    record = {
+        "task_id": task.id,
+        "skill": task.skill,
+        "directive": directive,
+        "tokens_consumed": handshake.get("tokens_consumed", 0),
+        "duration_seconds": handshake.get("duration_seconds", 0),
+        "files_modified": handshake.get("files_modified", []),
+        "janitor_notes": handshake.get("janitor_notes", ""),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    forge_log = BASE_DIR / "forge" / "events.jsonl"
+    forge_log.parent.mkdir(parents=True, exist_ok=True)
+    with open(forge_log, "a") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def requeue_task(task: "Task", inbox_dir: Path):
+    """Re-drop a modified task into the inbox with incremented retry counter."""
+    task.retry_count += 1
+    task_data = asdict(task)
+    requeue_path = inbox_dir / f"{task.id}-retry{task.retry_count}.json"
+    with open(requeue_path, "w") as f:
+        json.dump(task_data, f, indent=2)
+    log.info(f"[JANITOR] Re-queued {task.id} (retry {task.retry_count}) to {requeue_path}")
+
+
+def move_to_completed(task: "Task", active_path: Path, output: str):
+    """Move task from active to completed, write result file."""
+    dest = COMPLETED / active_path.name
+    if active_path.exists():
+        shutil.move(str(active_path), str(dest))
+    result_path = dest.with_suffix(".result.json")
+    with open(result_path, "w") as f:
+        json.dump({"task_id": task.id, "status": "COMPLETED", "output": output[-2000:]}, f, indent=2)
+
+
+def move_to_failed(task: "Task", active_path: Path, reason: str):
+    """Move task from active to failed, write result file."""
+    dest = FAILED / active_path.name
+    if active_path.exists():
+        shutil.move(str(active_path), str(dest))
+    result_path = dest.with_suffix(".result.json")
+    with open(result_path, "w") as f:
+        json.dump({"task_id": task.id, "status": "FAILED", "reason": reason[:2000]}, f, indent=2)
+
+
+# ---------------------------------------------------------------------------
 # Task routing
 # ---------------------------------------------------------------------------
 
@@ -462,35 +740,95 @@ def process_task_file(task_path: Path) -> dict:
         log_event("task_invalid", {"file": task_path.name, "error": str(e)})
         return {"status": "FAILED_REQUIRE_HUMAN", "error": str(e)}
 
-    # Move to active
+    # Move to active (skip if already there — claim_task() in watch() pre-moves)
     active_path = ACTIVE / task_path.name
-    shutil.move(str(task_path), str(active_path))
+    if task_path.parent.resolve() != ACTIVE.resolve():
+        shutil.move(str(task_path), str(active_path))
     log_event("task_started", {"task_id": task.id, "type": task.type, "source": task.source})
+
+    # Fleet routing check (Phase 6B)
+    target = getattr(task, 'target_node', '') if hasattr(task, 'target_node') else ''
+    if not target:
+        # Check raw task data for target_node
+        try:
+            with open(active_path) as _f:
+                _raw = json.load(_f)
+                target = _raw.get('target_node', '')
+        except Exception as e:
+            log.warning(f"Failed to read target_node from task file {active_path}: {e}")
+            target = ''
+
+    if target and not is_local_node(target):
+        registry = load_fleet_registry()
+        node = next((n for n in registry if n.get('node_id', n.get('id', '')) == target), None)
+        if node:
+            log.info(f'Dispatching task {task.id} to remote node: {target}')
+            try:
+                from dataclasses import asdict as _asdict
+                handshake = dispatch_remote(_asdict(task), node)
+                directive = janitor_evaluate(handshake, 0, task.id)
+                write_forge_record(task, directive, handshake)
+                move_to_completed(task, active_path, json.dumps(handshake))
+                log_event('task_finished', {'task_id': task.id, 'status': directive, 'type': task.type, 'node': target})
+                return handshake
+            except Exception as e:
+                log.error(f'Remote dispatch to {target} failed: {e}')
+                log.info(f'Falling back to local execution for task {task.id}')
+        else:
+            log.warning(f"target_node '{target}' not in registry — running local")
 
     # Execute
     result = execute_task(task)
 
-    # Move to completed or failed
-    if result.get("status") == "COMPLETED":
-        dest = COMPLETED / task_path.name
-    else:
-        dest = FAILED / task_path.name
+    # --- Janitor evaluation (Phase 1) ---
+    output = result.get("stdout", "")
+    handshake = extract_handshake(output)
 
-    if active_path.exists():
-        shutil.move(str(active_path), str(dest))
+    if not handshake:
+        # No parseable handshake — treat the raw result status as a fallback
+        if result.get("status") == "COMPLETED":
+            # Session completed but no structured handshake — treat as NOTE
+            handshake = {
+                "status": "COMPLETED",
+                "tests_passed": True,
+                "files_modified": [],
+                "janitor_notes": "No structured handshake — raw completion accepted.",
+                "tokens_consumed": 0,
+                "duration_seconds": 0,
+            }
+        else:
+            log.error(f"[{task.id}] No JSON handshake in clone output — treating as BLOCK")
+            move_to_failed(task, active_path, "No handshake JSON found")
+            log_event("task_finished", {"task_id": task.id, "status": "BLOCK", "type": task.type})
+            notify_human(task, "BLOCK", {"janitor_notes": "No handshake JSON in clone output"})
+            return result
 
-    # Write result alongside the task file
-    result_path = dest.with_suffix(".result.json")
-    with open(result_path, "w") as f:
-        json.dump(result, f, indent=2)
+    directive = janitor_evaluate(handshake, task.retry_count, task.id)
+    write_forge_record(task, directive, handshake)
+
+    if directive == "NOTE":
+        log.info(f"[{task.id}] Janitor: NOTE — merging result")
+        move_to_completed(task, active_path, output)
+        notify_human(task, directive, handshake)
+    elif directive == "SUGGEST":
+        log.info(f"[{task.id}] Janitor: SUGGEST — re-queuing with feedback")
+        task.objective += f"\n\nJanitor feedback: {handshake.get('janitor_notes', '')}"
+        if active_path.exists():
+            active_path.unlink()
+        requeue_task(task, INBOX)
+        notify_human(task, directive, handshake)
+    elif directive == "BLOCK":
+        log.warning(f"[{task.id}] Janitor: BLOCK — escalating to human")
+        move_to_failed(task, active_path, f"Janitor BLOCK: {handshake.get('janitor_notes', '')}")
+        notify_human(task, directive, handshake)
 
     log_event("task_finished", {
         "task_id": task.id,
-        "status": result.get("status"),
+        "status": directive,
         "type": task.type,
     })
 
-    log.info(f"Task {task.id}: {result.get('status')}")
+    log.info(f"Task {task.id}: directive={directive}")
     return result
 
 
@@ -512,19 +850,49 @@ def get_pending_tasks() -> list[Path]:
     return tasks
 
 
+def claim_task(task_path: Path, active_dir: Path) -> bool:
+    """Atomically claim a task file by renaming it to active/.
+
+    Uses os.rename() which is atomic on the same filesystem. Only the thread
+    that wins the rename gets to process the task — all others get FileNotFoundError.
+    """
+    active_path = active_dir / task_path.name
+    try:
+        os.rename(task_path, active_path)
+        return True
+    except FileNotFoundError:
+        return False  # Another thread already claimed it
+
+
 def watch():
-    """Main watch loop — polls inbox for new tasks."""
+    """Main watch loop — polls inbox for new tasks with concurrent execution."""
     ensure_directories()
     log.info(f"Dispatcher watching: {INBOX}")
     log.info(f"Poll interval: {POLL_INTERVAL}s | Max concurrent: {MAX_CONCURRENT}")
 
+    active_threads: list[threading.Thread] = []
+
     while True:
         try:
-            tasks = get_pending_tasks()
-            if tasks:
-                # Process one at a time in MVP (concurrent execution in Phase 4)
-                task_path = tasks[0]
-                process_task_file(task_path)
+            # Prune finished threads
+            active_threads = [t for t in active_threads if t.is_alive()]
+
+            if len(active_threads) < MAX_CONCURRENT:
+                tasks = get_pending_tasks()
+                for task_path in tasks:
+                    if len(active_threads) >= MAX_CONCURRENT:
+                        break
+                    if not claim_task(task_path, ACTIVE):
+                        continue  # Another thread already claimed it
+                    active_path = ACTIVE / task_path.name
+                    thread = threading.Thread(
+                        target=process_task_file,
+                        args=(active_path,),
+                        daemon=True,
+                    )
+                    thread.start()
+                    active_threads.append(thread)
+
             time.sleep(POLL_INTERVAL)
         except KeyboardInterrupt:
             log.info("Dispatcher shutting down.")

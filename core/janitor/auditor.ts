@@ -43,6 +43,16 @@ export interface ForgeRecord {
 
 const FORGE_EVENTS_PATH = process.env.FORGE_EVENTS_PATH || './forge/events.jsonl';
 
+// A2: Load warn_keywords from shared config
+const HEURISTICS_PATH = path.join(__dirname, 'config', 'heuristics.json');
+let WARN_KEYWORDS: string[] = ['todo:', 'hacky', 'tech debt', 'temporary', 'fragile', 'slow', 'fixme', 'workaround'];
+try {
+  const heuristics = JSON.parse(fs.readFileSync(HEURISTICS_PATH, 'utf-8'));
+  WARN_KEYWORDS = heuristics.warn_keywords;
+} catch {
+  console.warn('[JANITOR] Could not load heuristics.json — using built-in defaults');
+}
+
 export class Janitor {
   private maxRetries = 3; // Circuit breaker threshold
 
@@ -61,52 +71,52 @@ export class Janitor {
     taskId: string = 'unknown',
     skill: string = 'code'
   ): AuditResult {
+    let result: AuditResult;
 
     // 1. CIRCUIT BREAKER — same mission failed 3× → escalate to human
     if (currentRetries >= this.maxRetries) {
-      return {
+      result = {
         directive: AuditDirective.BLOCK,
         feedback: `CIRCUIT BREAKER TRIPPED: Clone failed ${this.maxRetries} times. Human intervention required.`,
         escalate_to_human: true
       };
     }
-
     // 2. BLOCKED_IMPOSSIBLE — task cannot be done as specified → Brain must re-plan
-    if (handshake.status === 'BLOCKED_IMPOSSIBLE') {
-      return {
+    else if (handshake.status === 'BLOCKED_IMPOSSIBLE') {
+      result = {
         directive: AuditDirective.BLOCK,
         feedback: `IMPOSSIBLE TASK: ${handshake.reason || 'No reason provided'}. Brain must re-plan.`,
         escalate_to_human: true
       };
     }
-
     // 3. FATAL FAILURES — tests failed or security breach → BLOCK
-    if (handshake.tests_passed === false || handshake.status === 'FAILED_REQUIRE_HUMAN') {
-      return {
+    else if (handshake.tests_passed === false || handshake.status === 'FAILED_REQUIRE_HUMAN') {
+      result = {
         directive: AuditDirective.BLOCK,
         feedback: `CRITICAL FAILURE: Tests did not pass or security boundaries breached. Status: ${handshake.status}`,
         escalate_to_human: handshake.status === 'FAILED_REQUIRE_HUMAN'
       };
     }
-
     // 4. STRUCTURAL MESS — code works but architecture has structural problems → SUGGEST
-    const structuralIssue = this.detectStructuralIssue(handshake);
-    if (structuralIssue) {
-      return {
-        directive: AuditDirective.SUGGEST,
-        feedback: structuralIssue,
-        escalate_to_human: false
-      };
+    else {
+      const structuralIssue = this.detectStructuralIssue(handshake);
+      if (structuralIssue) {
+        result = {
+          directive: AuditDirective.SUGGEST,
+          feedback: structuralIssue,
+          escalate_to_human: false
+        };
+      } else {
+        // 5. PASSABLE → NOTE — merge it
+        result = {
+          directive: AuditDirective.NOTE,
+          feedback: handshake.janitor_notes || 'Clean execution. Merged.',
+          escalate_to_human: false
+        };
+      }
     }
 
-    // 5. PASSABLE → NOTE — merge it, write structured record for Forge
-    const result: AuditResult = {
-      directive: AuditDirective.NOTE,
-      feedback: handshake.janitor_notes || 'Clean execution. Merged.',
-      escalate_to_human: false
-    };
-
-    // Write machine-parseable Forge record (never fails silently — log error but don't block merge)
+    // B2 (v9): Write ForgeRecord for ALL directives, not just NOTE
     this.writeForgeRecord(taskId, skill, handshake, result.directive).catch(err =>
       console.error(`[JANITOR] Failed to write Forge record: ${err}`)
     );
@@ -138,7 +148,7 @@ export class Janitor {
     // Missing tests: clone added source files but no test files
     const sourceFiles = files.filter(f => /\.(ts|js|py)$/.test(f) && !/test|spec/.test(f));
     const testFiles = files.filter(f => /test|spec/.test(f));
-    if (sourceFiles.length > 0 && testFiles.length === 0 && handshake.tests_passed !== true) {
+    if (sourceFiles.length > 0 && testFiles.length === 0 && handshake.tests_passed === false) {
       return `MISSING TESTS: Clone added ${sourceFiles.length} source file(s) but no test files. Add tests before merging.`;
     }
 
@@ -155,9 +165,9 @@ export class Janitor {
       return `PERFORMANCE CONCERN flagged in notes: "${notes}". Address before merging to avoid Forge regression.`;
     }
 
-    // Legacy semantic check for explicit quality admissions
+    // A2: Unified warn_keywords from heuristics.json (replaces old hardcoded list)
     const lowered = notes.toLowerCase();
-    if (['hacky', 'tech debt', 'fragile', 'temporary'].some(kw => lowered.includes(kw))) {
+    if (WARN_KEYWORDS.some(kw => lowered.includes(kw))) {
       return `QUALITY ADMISSION in notes: "${notes}". Refactor before merging.`;
     }
 

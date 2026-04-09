@@ -1,17 +1,20 @@
 // core/keychain/manager.ts
 // Phase 2 deliverable — Keychain Agent MVP (JIT Scoped Injection) V2
-// Changelog: spawn-based injection (no file on disk), try/finally lifecycle,
-//            Kids Bot maxTokensPerSession, patterns.yaml leak scanner note
+// Phase 5A upgrade: AES-256-GCM encrypted vault with scrypt KDF
+//
+// V2 lifecycle: KeychainManager provides provisionEnvironment() and
+// revokeEnvironment() as primitives. CloneWorker orchestrates them.
+// executeCloneMission() and launchClone() (V1 pattern) have been removed.
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawn } from 'child_process';
+import * as crypto from 'crypto';
+import { execSync } from 'child_process';
+import yaml from 'js-yaml';
 
-export interface MissionBrief {
-  task: string;
-  requiredKeys: string[];
-  allowedEndpoints: string[];
-  worktreePath: string;
+export interface ScanResult {
+  clean: boolean;
+  largeFilesSkipped: string[];
 }
 
 export interface HandshakeResult {
@@ -24,47 +27,138 @@ export interface HandshakeResult {
   reason?: string;
 }
 
+// Vault file paths relative to cwd
+const VAULT_DIR = 'state/keychain';
+const VAULT_ENC_FILE = 'vault.enc';
+const VAULT_SALT_FILE = 'vault.salt';
+
 export class KeychainManager {
   private masterVault: Record<string, string>;
+  /** Short secrets that bypass the >16 char entropy filter in scanForLeaks */
+  private exactMatchSecrets: Set<string> = new Set();
 
   constructor() {
-    // Reads from encrypted file in state/keychain/
-    // NEVER from the root directory of the host machine.
     this.masterVault = this.loadMasterVault();
   }
 
+  // ── AES-256 Vault Methods ──────────────────────────────────────────────
+
   /**
-   * FULL CLONE LIFECYCLE — try/finally guarantees revocation even if clone crashes.
-   * This is the CloneLifecycle orchestrator described in Opus review 2.
+   * Derive a 32-byte key from password + salt using scrypt (Argon2id substitute).
    */
-  async executeCloneMission(task: MissionBrief): Promise<HandshakeResult> {
-    const worktree = task.worktreePath;
-
-    // 1. Provision — credentials exist only in process memory, never on disk
-    const scopedEnv = this.buildScopedEnv(task.requiredKeys);
-
-    try {
-      // 2. Launch clone with env injected into subprocess (no .env file written)
-      const result = await this.launchClone(worktree, task, scopedEnv);
-      return result;
-    } finally {
-      // 3. Revoke + scan — ALWAYS runs, even if clone crashes
-      const clean = this.scanForLeaks(worktree);
-      if (!clean) {
-        console.error(`[FATAL] Credential leak detected in ${worktree}. Locking down.`);
-        // Janitor must be notified to BLOCK the commit
-      }
-    }
+  private deriveKey(password: string, salt: Buffer): Buffer {
+    return crypto.scryptSync(password, salt, 32, { N: 16384, r: 8, p: 1 });
   }
 
   /**
-   * BUILD SCOPED ENV: Creates a minimal env record with ONLY the requested keys.
-   * Explicit deny: any key not in requiredKeys is absent.
-   * Credentials stay in process memory — never written to disk.
+   * INIT VAULT — creates a new encrypted vault from initial secrets.
+   * Refuses to overwrite existing vault.
    */
-  private buildScopedEnv(requiredKeys: string[]): Record<string, string> {
-    const scopedEnv: Record<string, string> = {};
+  public initVault(masterPassword: string, initialSecrets: Record<string, string>): void {
+    const vaultDir = path.join(process.cwd(), VAULT_DIR);
+    const encPath = path.join(vaultDir, VAULT_ENC_FILE);
+    const saltPath = path.join(vaultDir, VAULT_SALT_FILE);
 
+    if (fs.existsSync(encPath)) {
+      throw new Error('Vault already exists — refusing to overwrite. Delete vault.enc first.');
+    }
+
+    fs.mkdirSync(vaultDir, { recursive: true });
+
+    // Generate salt
+    const salt = crypto.randomBytes(32);
+    fs.writeFileSync(saltPath, salt.toString('hex'), { mode: 0o600 });
+
+    // Derive key and encrypt
+    const key = this.deriveKey(masterPassword, salt);
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const plaintext = JSON.stringify(initialSecrets);
+    const encrypted = Buffer.concat([cipher.update(plaintext, 'utf-8'), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+
+    const vaultData = {
+      iv: iv.toString('hex'),
+      authTag: authTag.toString('hex'),
+      ciphertext: encrypted.toString('hex'),
+    };
+    fs.writeFileSync(encPath, JSON.stringify(vaultData), { mode: 0o600 });
+
+    // Reload into memory
+    this.masterVault = initialSecrets;
+    console.log(`[KEYCHAIN] Vault initialized with ${Object.keys(initialSecrets).length} secrets`);
+  }
+
+  /**
+   * ADD SECRET — decrypts vault, adds key, re-encrypts and saves.
+   */
+  public addSecret(key: string, value: string): void {
+    if (value.length < 8) {
+      console.warn(`[KEYCHAIN] Secret "${key}" is shorter than 8 chars — too short for leak detection`);
+      this.exactMatchSecrets.add(value);
+    }
+
+    const password = process.env.VAULT_MASTER_PASSWORD;
+    if (!password) {
+      throw new Error('VAULT_MASTER_PASSWORD not set in environment');
+    }
+
+    const vaultDir = path.join(process.cwd(), VAULT_DIR);
+    const encPath = path.join(vaultDir, VAULT_ENC_FILE);
+    const saltPath = path.join(vaultDir, VAULT_SALT_FILE);
+
+    if (!fs.existsSync(encPath)) {
+      throw new Error('No vault.enc found — run initVault() first');
+    }
+
+    // Decrypt current vault
+    const salt = Buffer.from(fs.readFileSync(saltPath, 'utf-8'), 'hex');
+    const derivedKey = this.deriveKey(password, salt);
+    const vaultData = JSON.parse(fs.readFileSync(encPath, 'utf-8'));
+    const secrets = this.decryptVaultData(vaultData, derivedKey);
+
+    // Add new secret
+    secrets[key] = value;
+
+    // Re-encrypt
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', derivedKey, iv);
+    const plaintext = JSON.stringify(secrets);
+    const encrypted = Buffer.concat([cipher.update(plaintext, 'utf-8'), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+
+    const newVaultData = {
+      iv: iv.toString('hex'),
+      authTag: authTag.toString('hex'),
+      ciphertext: encrypted.toString('hex'),
+    };
+    fs.writeFileSync(encPath, JSON.stringify(newVaultData), { mode: 0o600 });
+
+    // Update in-memory vault
+    this.masterVault[key] = value;
+  }
+
+  /**
+   * Decrypt vault data given derived key. Throws on wrong password / tampered data.
+   */
+  private decryptVaultData(vaultData: { iv: string; authTag: string; ciphertext: string }, key: Buffer): Record<string, string> {
+    const iv = Buffer.from(vaultData.iv, 'hex');
+    const authTag = Buffer.from(vaultData.authTag, 'hex');
+    const ciphertext = Buffer.from(vaultData.ciphertext, 'hex');
+
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(authTag);
+    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    return JSON.parse(decrypted.toString('utf-8'));
+  }
+
+  // ── Existing Methods (V2) ─────────────────────────────────────────────
+
+  /**
+   * BUILD SCOPED ENV: Creates a minimal env record with ONLY the requested keys.
+   */
+  public buildScopedEnv(requiredKeys: string[]): Record<string, string> {
+    const scopedEnv: Record<string, string> = {};
     for (const key of requiredKeys) {
       if (this.masterVault[key]) {
         scopedEnv[key] = this.masterVault[key];
@@ -72,75 +166,265 @@ export class KeychainManager {
         throw new Error(`SECURITY HALT: Requested key ${key} does not exist in vault.`);
       }
     }
-
     return scopedEnv;
   }
 
   /**
-   * LAUNCH CLONE: Spawns the Claude Code process with scoped env injected directly.
-   * Credentials exist only in the spawned process's memory — no file on disk.
-   * This eliminates the .env file attack surface entirely.
+   * PROVISION: Write a temporary .env file into the worktree for Python/shell clones.
    */
-  private async launchClone(
-    worktreePath: string,
-    task: MissionBrief,
-    scopedEnv: Record<string, string>
-  ): Promise<HandshakeResult> {
-    return new Promise((resolve, reject) => {
-      const child = spawn('claude', ['code'], {
-        cwd: worktreePath,
-        env: { ...process.env, ...scopedEnv } // credentials only in process memory
-      });
+  public async provisionEnvironment(worktreePath: string, requiredKeys: string[]): Promise<void> {
+    const resolved = path.resolve(worktreePath);
+    const scopedEnv = this.buildScopedEnv(requiredKeys);
+    const envPath = path.join(resolved, '.env');
+    const envContent = Object.entries(scopedEnv)
+      .map(([k, v]) => `${k}=${v}`)
+      .join('\n');
+    await fs.promises.writeFile(envPath, envContent, { mode: 0o600 });
+  }
 
-      let output = '';
-      child.stdout.on('data', (data) => { output += data.toString(); });
-      child.on('close', (code) => {
-        try {
-          // Parse JSON handshake from clone output
-          const jsonMatch = output.match(/\{[\s\S]*"status"[\s\S]*\}/);
-          if (jsonMatch) {
-            resolve(JSON.parse(jsonMatch[0]) as HandshakeResult);
-          } else {
-            reject(new Error('Clone produced no parseable JSON handshake'));
-          }
-        } catch (e) {
-          reject(e);
-        }
-      });
-    });
+  /**
+   * REVOKE: Delete the .env file from the worktree.
+   */
+  public async revokeEnvironment(worktreePath: string): Promise<ScanResult> {
+    const resolved = path.resolve(worktreePath);
+    const envPath = path.join(resolved, '.env');
+    try {
+      await fs.promises.unlink(envPath);
+    } catch {
+      // File may not exist if provisionEnvironment never ran
+    }
+    const result = this.scanForLeaks(resolved);
+    if (!result.clean) {
+      console.error(`[KEYCHAIN FATAL] Credential leak detected in ${resolved}`);
+    }
+    return result;
+  }
+
+  /**
+   * GET SCOPE KEYS: Returns the list of credential keys required for a given skill.
+   */
+  public getScopeKeys(skill: string): string[] {
+    const scopesPath = path.join(__dirname, 'config', 'scopes.yaml');
+    try {
+      const raw = fs.readFileSync(scopesPath, 'utf-8');
+      const parsed = yaml.load(raw) as Record<string, any>;
+      if (parsed && parsed[skill] && Array.isArray(parsed[skill].keys)) {
+        return parsed[skill].keys;
+      }
+      return [];
+    } catch {
+      console.warn(`[KEYCHAIN] Could not read scopes.yaml — returning empty scope for skill: ${skill}`);
+      return [];
+    }
   }
 
   /**
    * THE LEAK SCANNER: Prevents Clones from hardcoding API keys into source code.
-   * Uses BOTH exact-match (vault values) AND regex patterns from patterns.yaml.
-   * Catches: exact keys, base64-encoded keys, split strings, keys in comments.
    */
-  private scanForLeaks(worktreePath: string): boolean {
-    // TODO: Load patterns.yaml from config/patterns.yaml
-    // TODO: Iterate through git-staged files in worktreePath
-    // TODO: Check each file against:
-    //   1. Exact match: vault values (catches direct hardcoding)
-    //   2. Regex patterns: known key formats (sk-ant-api03-..., etc.)
-    //      — catches base64-encoded, split strings, keys in comments
-    // Return false if any match found (leak detected)
-    return true; // Safe — no leaks (placeholder)
+  private static readonly MAX_SCAN_FILE_BYTES = 1 * 1024 * 1024; // 1MB
+  private static readonly BINARY_EXTENSIONS = new Set([
+    '.png', '.jpg', '.jpeg', '.gif', '.ico', '.woff', '.ttf', '.eot',
+    '.pdf', '.zip', '.gz', '.tar', '.bin', '.exe', '.dll', '.so', '.node',
+  ]);
+
+  private scanForLeaks(worktreePath: string): ScanResult {
+    const patternsPath = path.join(__dirname, 'config', 'patterns.yaml');
+    const patterns: Array<{name: string, regex: string, severity: string}> = [];
+    try {
+      const raw = fs.readFileSync(patternsPath, 'utf-8');
+      const parsed = yaml.load(raw) as Record<string, any>;
+      if (parsed && parsed.patterns) {
+        for (const [name, entry] of Object.entries(parsed.patterns)) {
+          const e = entry as any;
+          if (e.regex && e.severity) {
+            patterns.push({ name, regex: e.regex, severity: e.severity });
+          }
+        }
+      }
+    } catch {
+      console.warn('[KEYCHAIN] Could not load patterns.yaml — using vault-value-only scan');
+    }
+
+    // Collect vault values for exact-match check — >16 chars only to avoid false positives
+    const vaultValues = Object.values(this.masterVault).filter(v => v.length >= 8);
+    // Also include short secrets that were explicitly added
+    const allExactValues = [...vaultValues, ...this.exactMatchSecrets];
+
+    const files = this.getModifiedFiles(worktreePath);
+
+    let foundLeak = false;
+    const skippedFiles: string[] = [];
+    for (const filePath of files) {
+      const resolved = path.resolve(filePath);
+      const rel = path.relative(path.resolve(worktreePath), resolved);
+      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue;
+
+      // A3: Skip binary files by extension
+      const ext = path.extname(resolved).toLowerCase();
+      if (KeychainManager.BINARY_EXTENSIONS.has(ext)) continue;
+
+      // A2 (v9): TOCTOU-safe scan — open fd first, then check realpath, then read from same fd.
+      // This prevents a race where an attacker swaps a symlink target between realpathSync and readFileSync.
+      let fd: number | null = null;
+      let content: string;
+      try {
+        fd = fs.openSync(resolved, 'r');
+
+        // Symlink boundary check — skip files that resolve outside worktree
+        const realPath = fs.realpathSync(resolved);
+        const resolvedWorktree = path.resolve(worktreePath);
+        if (!realPath.startsWith(resolvedWorktree + path.sep) && realPath !== resolvedWorktree) {
+          skippedFiles.push(`SYMLINK_ESCAPE: ${rel}`);
+          continue;
+        }
+
+        // Skip files larger than 1MB to prevent OOM — track for manual review
+        const stat = fs.fstatSync(fd);
+        if (stat.size > KeychainManager.MAX_SCAN_FILE_BYTES) {
+          console.warn(`[KEYCHAIN] Skipping large file (${stat.size} bytes): ${resolved}`);
+          skippedFiles.push(rel);
+          continue;
+        }
+
+        content = fs.readFileSync(fd, 'utf-8');
+      } catch {
+        // File unreadable — skip
+        continue;
+      } finally {
+        if (fd !== null) fs.closeSync(fd);
+      }
+
+      for (const value of allExactValues) {
+        if (content.includes(value)) {
+          console.error(`[LEAK SCAN] Exact vault value found in ${resolved}`);
+          foundLeak = true;
+        }
+      }
+
+      for (const pattern of patterns) {
+        try {
+          if (new RegExp(pattern.regex).test(content)) {
+            console.error(`[LEAK SCAN] Pattern "${pattern.name}" matched in ${resolved}`);
+            if (pattern.severity === 'CRITICAL') foundLeak = true;
+          }
+        } catch {
+          // Invalid regex in patterns.yaml — skip
+        }
+      }
+    }
+
+    return { clean: !foundLeak, largeFilesSkipped: skippedFiles };
+  }
+
+  private getModifiedFiles(worktreePath: string): string[] {
+    try {
+      const output = execSync('git status --porcelain', {
+        cwd: worktreePath,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      // Parse lines: "?? newfile.ts", " M modified.ts", "A  staged.ts", "R  old -> new"
+      const files = output.split('\n')
+        .filter(line => line.trim().length > 0)
+        .flatMap(line => {
+          const status = line.slice(0, 2).trim();
+          const rest = line.slice(3).trim();
+          if (status === 'R' || status === 'RM') {
+            const arrowIdx = rest.indexOf(' -> ');
+            return arrowIdx >= 0 ? [rest.slice(arrowIdx + 4)] : [rest];
+          }
+          return [rest];
+        })
+        .filter(f => f.length > 0);
+      return files.map((f: string) => path.join(worktreePath, f));
+    } catch {
+      return this.getAllFiles(worktreePath);
+    }
+  }
+
+  private getAllFiles(dirPath: string): string[] {
+    return this.getAllFilesRecursive(dirPath);
+  }
+
+  private getAllFilesRecursive(dir: string): string[] {
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      const files: string[] = [];
+      for (const entry of entries) {
+        if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          files.push(...this.getAllFilesRecursive(full));
+        } else if (entry.isFile()) {
+          files.push(full);
+        }
+      }
+      return files;
+    } catch {
+      return [];
+    }
   }
 
   /**
-   * LOAD: Read and decrypt the master vault from state/keychain/
-   * MVP: reads from encrypted file. Production: AES-256-GCM + Argon2id KDF.
-   *
-   * KIDS BOT ISOLATION:
-   * Planet Zabave / public-facing bot uses a separate vault:
-   *   state/keychain/kids/vault.enc — completely isolated masterVault
-   * Zero cross-pollination: main business keys do not exist in kids vault.
-   * maxTokensPerSession enforced per session to prevent cost-based attacks
-   * (attacker can't steal keys, but could rack up API costs via prompt injection).
+   * LOAD: Read and decrypt the master vault.
+   * Production: AES-256-GCM + scrypt KDF from vault.enc
+   * Fallback: .env file (backward compat for dev)
    */
   private loadMasterVault(): Record<string, string> {
-    // TODO: Implement AES-256-GCM decryption with Argon2id KDF
-    // Vault: state/keychain/vault.enc
-    // Kids vault: state/keychain/kids/vault.enc
-    return {};
+    // Try encrypted vault first
+    const vaultDir = path.join(process.cwd(), VAULT_DIR);
+    const encPath = path.join(vaultDir, VAULT_ENC_FILE);
+    const saltPath = path.join(vaultDir, VAULT_SALT_FILE);
+
+    if (fs.existsSync(encPath) && fs.existsSync(saltPath)) {
+      const password = process.env.VAULT_MASTER_PASSWORD;
+      if (!password) {
+        console.warn('[KEYCHAIN] vault.enc exists but VAULT_MASTER_PASSWORD not set — falling back to .env');
+      } else {
+        try {
+          const salt = Buffer.from(fs.readFileSync(saltPath, 'utf-8'), 'hex');
+          const key = this.deriveKey(password, salt);
+          const vaultData = JSON.parse(fs.readFileSync(encPath, 'utf-8'));
+          const secrets = this.decryptVaultData(vaultData, key);
+          console.log(`[KEYCHAIN] Loaded ${Object.keys(secrets).length} keys from encrypted vault`);
+          // C1: Populate exactMatchSecrets for leak detection
+          for (const [k, v] of Object.entries(secrets)) {
+            if (v.length >= 8) {
+              this.exactMatchSecrets.add(v);
+            }
+          }
+          return secrets;
+        } catch (err) {
+          throw new Error(`[KEYCHAIN] Failed to decrypt vault — wrong password or corrupted file: ${err}`);
+        }
+      }
+    }
+
+    // Fallback: read from .env
+    const vault: Record<string, string> = {};
+    const envPath = path.join(process.cwd(), '.env');
+    try {
+      const content = fs.readFileSync(envPath, 'utf-8');
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx === -1) continue;
+        const key = trimmed.slice(0, eqIdx).trim();
+        const value = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+        vault[key] = value;
+      }
+      console.log(`[KEYCHAIN] Loaded ${Object.keys(vault).length} keys from .env`);
+      // C1: Populate exactMatchSecrets for leak detection
+      for (const [k, v] of Object.entries(vault)) {
+        if (v.length >= 8) {
+          this.exactMatchSecrets.add(v);
+        }
+      }
+    } catch {
+      console.warn('[KEYCHAIN] No .env file found — vault is empty. Clone launches will fail.');
+    }
+
+    return vault;
   }
 }

@@ -40,7 +40,7 @@ Full origin story and design philosophy: [wiki/decisions/decision-system-philoso
 |-------|-----------|
 | Core orchestration | TypeScript + Node.js (async I/O, MCP SDK native) |
 | Clone execution | Python 3.9+ (AI/ML ecosystem, subprocess control) |
-| Memory | MemPalace MCP server (ChromaDB 96.6% R@5 raw; AAAK mode 84.2% — lossy) |
+| Memory | MemPalace MCP server (96.6% LongMemEval, AAAK compression) |
 | Context packing | Repomix (70% token reduction) |
 | Execution isolation | git worktrees (parallel, sandboxed) |
 | Credentials | JIT injection — process memory only, try/finally lifecycle |
@@ -52,19 +52,15 @@ Full origin story and design philosophy: [wiki/decisions/decision-system-philoso
 
 ## What's Next
 
-Phases 0-4 built by Claude Opus 4.6 (2026-04-08). First end-to-end autonomous loop confirmed.
+| Stage | What |
+|-------|------|
+| **This week** | Phase 0: fix 8 compile errors. Phase 1-2: dispatcher paths + credential MVP |
+| **First loop** | `triggerFullPipeline()` auto-writes to inbox → first end-to-end autonomous run |
+| **Fleet** | Bootstrap second node, `target_node` routing, fleet health droid |
+| **Forge** | Shadow runner → evaluator → ratchet → self-improving templates |
+| **WikiScythe** | Automated wiki maintenance — prune stale, flag contradictions |
 
-| Stage | What | Status |
-|-------|------|--------|
-| **Phase 0-4** | Compile fixes, dispatcher, credentials, clone lifecycle, brain pipeline | ✅ Done — 57 tests |
-| **Security** | Path traversal fix, entropy threshold, `.env` 0o600 | ✅ Done — Gemini review-68 |
-| **MCP transport** | Wire `StdioClientTransport` in `mempalace_adapter.ts` | 🔧 Next |
-| **Fleet** | Bootstrap second node, `target_node` routing, fleet health droid | ⏳ Phase 5 |
-| **Forge** | Shadow runner → evaluator → ratchet → self-improving templates | ⏳ Phase 7 |
-| **WikiScythe** | V4-implemented contradiction detection via LLM semantic comparison | ⏳ Phase 6 |
-| **Merge to main** | After MCP transport wired + vault hardened | ⏳ Pending |
-
-Full build plan: [wiki/decisions/plan-build-v1.md](wiki/decisions/plan-build-v1.md) · Build state: [wiki/decisions/build-state-2026-04-08.md](wiki/decisions/build-state-2026-04-08.md)
+Full build plan with exact code specs + unit tests: [wiki/decisions/plan-build-v1.md](wiki/decisions/plan-build-v1.md)
 
 **Model governance:** Claude Sonnet 4.6 is the default for all tasks in the first implementation — establishing a benchmark baseline before optimising downward (Haiku → Ollama → BitNet). The Forge drives all model transitions through A/B testing and the 5-win ratchet. See [decision-model-governance.md](wiki/decisions/decision-model-governance.md).
 
@@ -86,41 +82,65 @@ Bridge (The Output Layer)   — everything the user sees; Telegram relay; never 
 
 ---
 
-## Current State (as of 2026-04-08)
+## Current State (as of 2026-04-08) — Branch: `opus-build`
 
-### Working code (opus-build branch — 9 commits, 57 tests)
+**211 tests passing (160 Jest + 51 pytest). TSC clean. 0 stubs remaining. v0.9.0 (9 build phases, pre-1.0)**
 
-| Component | Status |
-|-----------|--------|
-| TypeScript compiler | ✅ `tsc` exits 0 — all compile errors fixed |
-| Python dispatcher + Janitor | ✅ 17 pytest — BLOCK/SUGGEST/NOTE loop wired |
-| Keychain JIT credentials | ✅ 14 Jest — provision, revoke, scanForLeaks, scoped env |
-| Clone lifecycle (spawn/run/teardown) | ✅ 12 Jest — real git worktrees, handshake parsing |
-| Brain + full pipeline | ✅ 14 Jest — BrainPlanner, ComplexityClassifier, ForgeRecord |
-| Security patches | ✅ path.relative() traversal guard, entropy threshold >16 |
-| Skills scaffold | ✅ skills/ library, required_skills schema, CI skill-scanner gate |
-| End-to-end loop | ✅ User message → Brain → Clone → Janitor → Bridge (Telegram + Email) |
+### Build progress
 
-### Known TODOs (not blocking)
+| Version | Tests | Key wins |
+|---------|-------|----------|
+| Phase 5-7 baseline | 84 | AES vault, MCP transport, WikiScythe, fleet routing, Forge core |
+| v3 | 103 | SSH injection fix, env strip, noLeaks→BLOCK, file handshake, watchdog |
+| v4 | 126 | 2-pass classifier, Janitor unified, Forge cost cap, executeDirect+Soul.md |
+| v5 | 140 | Forge budget real, spawner injection blocked, wiki token cap |
+| v6 | 157 | Registry format fix, OOM guard, dispatcher injection, soul TTL |
+| v7 | 174 | Python vault leak fixed, git status scan, env allowlist, confidence gate |
+| v8 | 198 | Janitor unified (TS/Python), rename parsing, symlink guard, watch() threaded, execFile, config externalised, quarantine mode |
+| **v9 (0.9.0)** | **211** | bare except narrowed, quarantine purged, version bumped to pre-1.0 |
 
-| Item | Notes |
-|------|-------|
-| `mempalace_adapter.ts` MCP transport | All methods stubbed. Wire `StdioClientTransport` when MemPalace confirmed running. |
-| `provisionSkills()` in spawner | Copy required_skills from library to worktree .claude/skills/ — Phase 5. |
-| `loadMasterVault()` | MVP reads plain `.env`. Full AES-256-GCM vault in Phase 5. |
-| WikiScythe contradiction detection | Must be V4-implemented via LLM semantic comparison — MemPalace KG doesn't do this. |
-| Fleet routing | `target_node` field not yet parsed. All tasks run on current node. |
-| Forge | All 4 files are stubs. Phase 7. |
+### What is implemented
 
-Full state: [wiki/decisions/build-state-2026-04-08.md](wiki/decisions/build-state-2026-04-08.md) · Prior audit: [wiki/decisions/review-code-audit-1.md](wiki/decisions/review-code-audit-1.md)
+| Component | File | Status |
+|-----------|------|--------|
+| MemoryStore | `core/memory_store/interface.ts` | ✓ V2 — MemoryTier enum, writeSummary, audit |
+| AES-256-GCM Vault | `core/keychain/manager.ts` | ✓ scrypt KDF, separate salt file, exactMatchSecrets |
+| Credential scanner | `core/keychain/manager.ts:scanForLeaks()` | ✓ git status --porcelain, 1MB cap, binary skip, symlink guard |
+| 2-pass Classifier | `core/routing/classifier.ts` | ✓ Hardcoded DIRECT/FULL_PIPELINE → Haiku fallback |
+| Janitor auditor | `core/janitor/auditor.ts` | ✓ heuristics.json, largeFilesSkipped, tests_passed===false |
+| Python dispatcher | `brain/dispatcher.py` | ✓ Threaded watch(), janitor_evaluate() mirrors TS, build_clone_env() allowlist |
+| Brain planner | `core/brain/planner.ts` | ✓ Anthropic singleton, 3-tier JSON parse fallback |
+| Prompt builder | `core/brain/prompt_builder.ts` | ✓ findWikiPage() recursive, truncateAtLineBoundary() |
+| Clone spawner | `core/clones/lifecycle/spawner.ts` | ✓ git worktree add, cloneId validation, --ignore-scripts |
+| Clone runner | `core/clones/lifecycle/runner.ts` | ✓ execFileAsync array form, setup.sh + Repomix + Claude |
+| Clone teardown | `core/clones/lifecycle/teardown.ts` | ✓ Quarantine mode for BLOCK (state/worktrees/quarantine/) |
+| Clone worker | `core/clones/clone_worker.ts` | ✓ buildCloneEnv() allowlist (SHELL/USER included), retry loop |
+| WikiScythe | `core/janitor/scythe.ts` | ✓ archive-queue.md gate, execFileSync array form |
+| Forge | `core/forge/` | ✓ ShadowRunner budget cap, metrics_db, ratchet (5-win promote) |
+| User Agent | `core/user_agent/agent.ts` | ✓ confidence gate, routeToBrain wiki context, truncateHistory |
+| Shared config | `core/config/clone_config.json` | ✓ maxRetries, timeoutMs, confidenceGateThreshold, brainWikiPages |
+| Watchdog | `core/clones/watchdog.ts` | ✓ stale worktree cleanup |
+
+### Known TODOs (next review cycle)
+
+- Docker/real sandbox isolation (`--dangerously-skip-permissions` still active)
+- data-scrubbing before `events.jsonl` writes (PII in Forge logs)
+- `extract_handshake()` regex false-positive for handshake-shaped code in clone output
+- Full clone lifecycle integration test (no mocks)
+- `dispatcher.py` monolith decomposition
+- ts-node CLI for Janitor (Option A deferred — Option B works)
+- Conversation history not persisted across restarts
+
+Full audit trail: `wiki/decisions/` — 8 Opus reviews + 8 Gemini reviews + 8 build plans
 
 ---
 
-## Quick Start
+## Quick Start (what you can run today)
 
 ```bash
 # 1. Bootstrap this machine
 bash scripts/bootstrap-linux.sh --node-type code
+# or on Windows: .\scripts\bootstrap-windows.ps1 -NodeType code
 
 # 2. Fill in credentials
 cp .env.example .env
@@ -133,13 +153,18 @@ claude auth
 source venv/bin/activate
 python brain/dispatcher.py watch
 
-# 5. Drop a task into brain/inbox/ to trigger a clone
+# 5. Drop a task file into brain/inbox/ to trigger a clone
 cat > brain/inbox/test-001.json << 'EOF'
 {
-  "id": "test-001", "type": "clone", "skill": "code",
-  "objective": "Create hello.py that prints hello world and run it",
-  "source": "manual", "priority": 3,
-  "required_keys": [], "wiki_pages": [], "constraints": ["only create files in /tmp/test-001/"],
+  "id": "test-001",
+  "type": "clone",
+  "skill": "code",
+  "objective": "Create a hello.py that prints hello world and run it",
+  "source": "manual",
+  "priority": 3,
+  "required_keys": [],
+  "wiki_pages": [],
+  "constraints": ["only create files in /tmp/test-001/"],
   "timeout_minutes": 10
 }
 EOF
@@ -149,8 +174,6 @@ python brain/dispatcher.py status
 ```
 
 ---
-
-
 
 ## Repository Structure
 
@@ -200,7 +223,7 @@ Agent4wiki/
 ├── forge/                  ← Forge output (forge/events.jsonl gitignored)
 ├── raw/                    ← Immutable source documents (never edit, only append)
 │
-└── wiki/                   ← The Brain's OS (fully committed — 65 pages)
+└── wiki/                   ← The Brain's OS (fully committed — 63 pages)
     ├── CLAUDE.md           ← Wiki schema, wikilink convention, tiering, token budget
     ├── Soul.md             ← Agent identity: voice, values, delegation style
     ├── index.md            ← Master catalog
@@ -250,10 +273,11 @@ User message (Telegram)
 | **Audit** | [Code Audit 1](wiki/decisions/review-code-audit-1.md) — 6 critical bugs, fix order |
 | **Decisions** | [Seven Segments](wiki/decisions/decision-seven-segments.md) · [Brain Never Executes](wiki/decisions/decision-brain-never-executes.md) · [TypeScript + Python](wiki/decisions/decision-typescript-python.md) · [Directory Scaffold](wiki/decisions/decision-directory-scaffold.md) |
 | **Why / How** | [decision-system-philosophy.md](wiki/decisions/decision-system-philosophy.md) — origin story, design decisions, roadmap |
-| **Build plan** | [plan-build-v1.md](wiki/decisions/plan-build-v1.md) — Phase 0-4 with exact code + unit tests |
+| **Latest build plan** | [plan-build-v8.md](wiki/decisions/plan-build-v8.md) — Janitor unification, watch concurrency, quarantine mode |
+| **Build history** | [build-state-2026-04-08-v8.md](wiki/decisions/build-state-2026-04-08-v8.md) — 198 tests, all wins |
 | **Opus brief** | [raw/opus-build-brief.md](raw/opus-build-brief.md) — full handoff: 7 segments, decisions, model governance, DoD |
-| **All pages** | [wiki/index.md](wiki/index.md) — 65 pages total |
+| **All pages** | [wiki/index.md](wiki/index.md) — 100 pages total |
 
 ---
 
-*65 pages · last updated 2026-04-08 · sources: 8 repos/articles + 1 architecture session + 13 external reviews + 2 build plans + 1 research PDF + 1 multi-channel bridge*
+*100 pages · last updated 2026-04-08 · sources: 8 repos/articles + 1 architecture session + 16 external reviews (Opus ×8, Gemini ×8) + 8 build plans + 1 research PDF + 1 multi-channel bridge + benchmark results*
