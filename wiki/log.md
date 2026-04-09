@@ -2,6 +2,14 @@
 
 Chronological record of all wiki operations. Append-only.
 
+## [2026-04-09] merge | opus-build → main (v0.9.0)
+
+Merge commit `3f73f10`. Branch opus-build merged to main after full gate sequence: Gemini review (10 action items), Opus review (7/10, 2 mandatory fixes), Janitor gate (Haiku+extended, SUGGEST, 0 BLOCKs). Pre-merge fixes: teardown.ts + ratchet.ts shell injection (execSync→execFileSync), bare except in dispatcher.py, quarantine purge, test/ FPs excluded. Single merge conflict: README.md (took opus-build version). 211 tests passing (160 Jest + 51 pytest), TSC clean. Operational: ready for single-machine testing. Pages created: [[build-state-2026-04-09-merged]]. Index updated to 112 pages.
+
+## [2026-04-09] decision | Janitor extended thinking + pre-merge gate rules established
+
+Two new hard rules added to OPERATIONS.md and memory: (1) ALL Janitor agent spawns must use extended thinking prompt ("think hard"/"carefully analyze") — benchmark proved Haiku+extended finds 33% more, Opus+extended finds 171% more than plain runs; (2) Run Janitor before merging any important code branch — Opus for security-critical, Haiku for routine; BLOCK=no merge, SUGGEST=review+decide, NOTE=OK. Log results to wiki before proceeding.
+
 ## [2026-04-09] build | Forge wiki created (4 pages)
 
 forge-home, forge-benchmarks, forge-experiments, forge-improvement-log. Benchmarks: Phase 1 effort routing, Phase 2 context window, planned 2-tier Janitor. Improvement log: 9 entries from v6-v9. Experiment queue: 5 items queued. Index updated to 109 pages.

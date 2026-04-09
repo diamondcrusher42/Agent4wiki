@@ -82,9 +82,9 @@ Bridge (The Output Layer)   — everything the user sees; Telegram relay; never 
 
 ---
 
-## Current State (as of 2026-04-08) — Branch: `opus-build`
+## Current State (as of 2026-04-09) — Branch: `main`
 
-**211 tests passing (160 Jest + 51 pytest). TSC clean. 0 stubs remaining. v0.9.0 (9 build phases, pre-1.0)**
+**211 tests passing (160 Jest + 51 pytest). TSC clean. 0 stubs remaining. v0.9.0 — merged to main 2026-04-09**
 
 ### Build progress
 

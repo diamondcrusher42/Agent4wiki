@@ -1,8 +1,9 @@
 # Agent Architecture Wiki — Index
 
 > Last updated: 2026-04-09
-> Total pages: 111
+> Total pages: 112
 > Sources ingested: 8 repos/articles + 1 architecture session + 14 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
+> Branch: main (merged from opus-build 2026-04-09, v0.9.0, commit 3f73f10)
 
 ## Templates
 
@@ -132,6 +133,11 @@
 - [[review-opus-review95]] — Opus multi-perspective post-v8 (72% readiness). CRIT-1: dead code janitor_evaluate. CRIT-2: TOCTOU symlink race (openSync→fstatSync→readFileSync). HIGH-5: atomic rename task pickup. HIGH-6: runRepomix shell injection. HIGH-1: ForgeRecord policy asymmetry. 7 of 9 v8 plan items already implemented.
 - [[decision-janitor-standalone]] — Janitor as standalone product (agent-janitor repo). Architecture, credential sharing, v1.0.1 false positive fixes, what it finds vs linters. First real scan learnings.
 - [[build-state-2026-04-09-v9]] — Plan-build-v9 complete: 198→211 tests (+13). A1 dead code, A2 TOCTOU fd, A3 atomic claim, B1 runRepomix, B2 ForgeRecord all verdicts, B3 prompt file finally. opus-build @ 5ffb5e4.
+- [[review-gemini-v9]] — Gemini review of v9: PromptBuilder .replaceAll() prompt injection (CRIT), stdout JSON parse fragile (HIGH), .env exposure before teardown (HIGH), WikiScythe per-file git log inefficiency.
+- [[review-opus-v9]] — Opus 7-segment review of v9: teardown.ts shell injection (CRIT), ratchet.ts tag injection (HIGH), --dangerously-skip-permissions systemic risk, Forge evaluator gameability. 2 mandatory pre-testing fixes, 3 recommended.
+- [[janitor-opus-build-pre-merge]] — Janitor pre-merge gate on opus-build: SUGGEST, 0 BLOCKs after v9.1 fixes. Extended thinking enabled. test/ + raw/ excluded as FP patterns.
+- [[build-state-2026-04-09-v9-1]] — v9.1: teardown.ts execSync→execFileSync (6 calls), ratchet.ts execSync→execFileSync + tag validation, bare except narrowed. All shell injection surfaces closed.
+- [[build-state-2026-04-09-merged]] — Merged opus-build → main (commit 3f73f10). v0.9.0. 211 tests, TSC clean, 0 BLOCKs. Ready for single-machine testing. Pending: handshake schema, context size guard, conversation history persistence.
 - [[decision-janitor-tiered-benchmark]] — Forge benchmark plan for 2-tier Janitor: Tier 1 (Haiku max/Sonnet medium) for routine scans, Tier 2 (Opus max+extended) for deep audits. 5 test cases, scoring matrix, routing decision gate.
 - [[review-skills-playbook]] — V4 Skills Playbook: 28-skill ceiling, 4-gate triage, 5-layer security (Docker sandbox, Nemotron LLM-on-LLM, Keychain scoping), Quarantine→Probation→Production pipeline, Forge owns lifecycle.
 - [[code-suggestions-skills]] — 7 concrete code changes: required_skills task field, provisionSkills() spawner, skills/ library, Docker sandbox flag, per-skill scopes.yaml, GitHub Actions gate, Janitor skill audit. Ordered by phase.
