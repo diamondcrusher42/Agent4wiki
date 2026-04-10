@@ -1,0 +1,6 @@
+state/
+test/
+raw/
+node_modules/
+dist/
+.venv/
