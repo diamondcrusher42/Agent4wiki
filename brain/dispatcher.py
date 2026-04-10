@@ -279,6 +279,14 @@ def read_file_safe(path: Path, max_tokens: int = 2000) -> str:
     return content
 
 
+def _sanitize_wiki_page_name(name: str) -> str:
+    """Reject any page name containing path traversal characters."""
+    if ".." in name or "/" in name or "\\" in name:
+        raise ValueError(f"Invalid wiki page name: {name!r}")
+    import re
+    return re.sub(r'[^a-zA-Z0-9_\-]', '', name)
+
+
 def assemble_context(task: Task) -> str:
     """
     Build the context payload for a Brain or Clone session.
@@ -337,6 +345,11 @@ def assemble_context(task: Task) -> str:
         wiki_total_chars = 0
         wiki_char_budget = 2000  # ~500 tokens, same as TS
         for page_name in task.wiki_pages:
+            try:
+                page_name = _sanitize_wiki_page_name(page_name)
+            except ValueError:
+                log.warning(f"[{task.id}] Skipping invalid wiki page name: {page_name!r}")
+                continue
             page_path = BASE_DIR / "wiki" / f"{page_name}.md"
             if not page_path.exists():
                 for subdir in ["segments", "concepts", "tools", "entities", "decisions"]:
@@ -360,6 +373,11 @@ def assemble_context(task: Task) -> str:
         # Also append wiki pages as separate sections for models that benefit from
         # seeing context outside the template block (budget guard handles overflow)
         for page_name in task.wiki_pages:
+            try:
+                page_name = _sanitize_wiki_page_name(page_name)
+            except ValueError:
+                log.warning(f"[{task.id}] Skipping invalid wiki page name: {page_name!r}")
+                continue
             page_path = BASE_DIR / "wiki" / f"{page_name}.md"
             if not page_path.exists():
                 # Try with segments/concepts/tools prefix

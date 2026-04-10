@@ -5,7 +5,7 @@
 // and registers the clone in the active worktrees registry.
 // Works alongside core/keychain/manager.ts (JIT credential injection).
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -37,7 +37,7 @@ export class CloneSpawner {
     await fs.promises.mkdir(path.dirname(worktreePath), { recursive: true });
 
     // 1. Create git worktree
-    execSync(`git worktree add "${worktreePath}" -b "${branch}"`, {
+    execFileSync('git', ['worktree', 'add', worktreePath, '-b', branch], {
       cwd: REPO_ROOT,
       stdio: 'pipe',
     });

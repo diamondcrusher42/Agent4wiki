@@ -196,7 +196,7 @@ export class WikiScythe {
    */
   private getGitMtime(filePath: string): Date | null {
     try {
-      const result = execFileSync('git', ['log', '--format=%ct', '-1', filePath], {
+      const result = execFileSync('git', ['log', '--format=%ct', '-1', '--', filePath], {
         encoding: 'utf-8',
         cwd: process.cwd(),
       });
