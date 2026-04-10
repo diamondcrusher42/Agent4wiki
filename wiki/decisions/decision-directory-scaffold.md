@@ -1,6 +1,6 @@
 # Decision: Master Directory Scaffold
 
-> Source: [[raw/master_directory_proposal.md]] | Author: Gemini
+> Source: raw/master_directory_proposal.md (excluded from wiki) | Author: Gemini
 
 ## The Canonical Structure
 
