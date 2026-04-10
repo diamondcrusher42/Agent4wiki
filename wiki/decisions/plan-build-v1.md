@@ -655,11 +655,11 @@ private getModifiedFiles(worktreePath: string): string[] {
 ```typescript
 test('scanForLeaks detects hardcoded vault value', () => {
   const km = new KeychainManager();
-  (km as any).masterVault = { SECRET_KEY: 'sk-ant-api03-my-real-key' };
+  (km as any).masterVault = { SECRET_KEY: 'sk-ant-EXAMPLE-key' };
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-scan-'));
   // Simulate a file with a leaked key
-  fs.writeFileSync(path.join(tmpDir, 'config.py'), "API_KEY = 'sk-ant-api03-my-real-key'");
+  fs.writeFileSync(path.join(tmpDir, 'config.py'), "API_KEY = 'sk-ant-EXAMPLE-key'");
 
   // Init git so getModifiedFiles works
   require('child_process').execSync('git init && git add . && git commit -m "init" --allow-empty', { cwd: tmpDir });
@@ -673,7 +673,7 @@ test('scanForLeaks detects hardcoded vault value', () => {
 
 test('scanForLeaks passes clean directory', () => {
   const km = new KeychainManager();
-  (km as any).masterVault = { SECRET_KEY: 'sk-ant-api03-my-real-key' };
+  (km as any).masterVault = { SECRET_KEY: 'sk-ant-EXAMPLE-key' };
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-scan-clean-'));
   fs.writeFileSync(path.join(tmpDir, 'main.py'), "print('hello world')");
