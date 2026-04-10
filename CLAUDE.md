@@ -11,17 +11,23 @@ Default: **Sonnet --medium** (set via watchdog.sh `--model sonnet --effort mediu
 ### Per-task model routing
 | Task type | Model | Effort | Notes |
 |---|---|---|---|
-| Routing, classification, short summaries | Haiku | medium | Auto-downgrade, note it |
+| Routing, classification, short summaries | Haiku | max | Auto-downgrade, note it |
 | Most tasks (default) | Sonnet | medium | No confirmation needed |
-| Code review, Janitor audit | Opus | max thinking | Confirm before switching |
-| Legal bar exam, security-critical | Opus | max thinking | Confirm before switching |
+| Demanding Sonnet tasks (complex analysis, multi-step) | Sonnet | max | Add thinking prompt |
+| Code review, Janitor audit | Opus | max | Confirm before switching |
+| Legal bar exam, security-critical | Opus | max | Confirm before switching |
 | Subagent spawns (simple) | Haiku | max | For forge clones, quick tasks |
 | Subagent spawns (quality matters) | Sonnet | medium | For evaluation, analysis |
 
+### Thinking prompt rule
+**ALL Haiku tasks** must use `--effort max` and include "Think carefully about this" in the prompt. This is mandatory — Haiku with forced thinking consistently outperforms Haiku without it.
+For **demanding Sonnet and Opus tasks** (complex analysis, code review, architecture), also include the thinking prompt.
+
 ### Rules
 1. **Never silently upgrade to Opus** — always confirm: "This needs Opus (~3-5x cost). Approve?"
-2. **Auto-downgrade to Haiku** for simple routing/classification — note the downgrade
+2. **Auto-downgrade to Haiku --max** for simple routing/classification — note the downgrade
 3. **Extended thinking** is enabled by default (MAX_THINKING_TOKENS=63999) for all tiers
+4. **Haiku always uses --max effort** — never run Haiku at medium or low
 
 ## CRITICAL: Telegram Response Rules
 
