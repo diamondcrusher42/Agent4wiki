@@ -87,6 +87,10 @@ except (FileNotFoundError, KeyError, json.JSONDecodeError):
 CONTEXT_TOKEN_BUDGET_BRAIN = 8000
 CONTEXT_TOKEN_BUDGET_CLONE = 6000
 
+# Phase 2C: MemPalace path for institutional memory queries
+PALACE_PATH = BASE_DIR / "state" / "memory" / "palace"
+MEMPALACE_VENV = Path(os.environ.get("MEMPALACE_VENV", "/home/claudebot/workspace/venv/bin/python3"))
+
 # B1: Load allowed endpoints per skill from scopes.yaml (mirrors TS scopes.yaml path)
 _SCOPES_PATH = Path(__file__).parent.parent / 'core' / 'keychain' / 'config' / 'scopes.yaml'
 try:
@@ -279,6 +283,27 @@ def read_file_safe(path: Path, max_tokens: int = 2000) -> str:
     return content
 
 
+def query_mempalace(objective: str, top_k: int = 5) -> str:
+    """
+    Phase 2C: Query MemPalace for context relevant to the task objective.
+    Returns formatted results or empty string on any failure (silent fallback).
+    """
+    if not PALACE_PATH.exists():
+        return ""
+    try:
+        result = subprocess.run(
+            [str(MEMPALACE_VENV), "-m", "mempalace",
+             "--palace", str(PALACE_PATH), "search", objective, "--top-k", str(top_k)],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            log.info(f"[MEMPALACE] Retrieved {top_k} relevant memories for task")
+            return result.stdout.strip()
+    except Exception as e:
+        log.debug(f"[MEMPALACE] Query skipped: {e}")
+    return ""
+
+
 def _sanitize_wiki_page_name(name: str) -> str:
     """Reject any page name containing path traversal characters."""
     if ".." in name or "/" in name or "\\" in name:
@@ -309,6 +334,11 @@ def assemble_context(task: Task) -> str:
         soul = read_file_safe(SOUL_MD, max_tokens=200)
         if soul:
             parts.append(f"# Voice & Style\n{soul}")
+
+        # Phase 2C: inject MemPalace context before task objective
+        memory_context = query_mempalace(task.objective)
+        if memory_context:
+            parts.append(f"## Institutional Memory\n{memory_context}")
 
         parts.append(f"# Task\n{task.objective}")
 
@@ -957,8 +987,9 @@ def process_task_file(task_path: Path) -> dict:
     result = execute_task(task)
 
     # --- Janitor evaluation (Phase 1) ---
-    output = result.get("stdout", "")
-    handshake = extract_handshake(output)
+    # Phase 2D: file handshake is primary (written by runner.ts to state/handshakes/<id>.json)
+    # Fall back to stdout parsing for clones that don't write the file.
+    handshake = read_handshake_file(task.id) or extract_handshake(result.get("stdout_full", ""))
 
     if not handshake:
         # S5 fix: no synthetic approval — clones must output explicit handshake JSON.

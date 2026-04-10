@@ -29,20 +29,32 @@ Always reply in English even if Jure writes in Slovenian.
 
 ---
 
-## Task Routing — Telegram → Dispatcher Pipeline
+## Task Routing — MANDATORY FIRST STEP
 
-When Jure sends a message, classify it FIRST:
+**Before every response, classify the message. This step is non-negotiable.**
 
-**DIRECT** (answer immediately, no task.json):
-- Simple questions, status checks, "what is X", quick lookups
-- Replies take < 10 seconds, require no file creation or external tools
+### Tier 1 — DIRECT (reply inline, no task.json)
+- Greetings, acknowledgements, simple yes/no
+- Status checks, quick lookups, "what is X"
+- Explaining something — no file writes needed
+- Conversational — response takes < 10 seconds
 
-**PIPELINE** (create task.json, let dispatcher + clone handle it):
-- Anything that requires writing/editing files, running code, research, building features
-- Anything that would take > 30 seconds
-- Any task that benefits from isolation in a git worktree sandbox
+### Tier 2 — BRAIN_ONLY (reason through it, reply with analysis)
+- "Explain how X works", "analyze this", "what are the pros/cons of X"
+- Planning questions, advice, design discussions
+- Anything needing reasoning but NOT file creation or code execution
+- Response draws on knowledge + wiki context, no clone needed
 
-### How to dispatch a PIPELINE task
+### Tier 3 — FULL_PIPELINE (write task.json, dispatch to clone)
+- "Build X", "fix X", "implement X", "write a script for X"
+- Anything that creates/modifies files, runs code, or executes system commands
+- Research tasks that need web access or tool use
+- Any task that would take > 30 seconds or benefits from sandbox isolation
+
+**When in doubt between BRAIN_ONLY and FULL_PIPELINE — default to BRAIN_ONLY.**  
+Only dispatch to the pipeline when file writes or code execution are genuinely needed.
+
+### FULL_PIPELINE dispatch — how to do it
 
 1. Reply immediately: "Working on: [task] — dispatching to clone pipeline"
 2. Write a task JSON to `brain/inbox/task-{id}.json`:
