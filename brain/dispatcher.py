@@ -136,8 +136,23 @@ SENSITIVE_ENV_KEYS = {
 
 
 def build_clone_env(extra: dict | None = None) -> dict:
-    """Build a sanitized env dict for clone subprocesses, stripping sensitive keys."""
+    """Build a sanitized env dict for clone subprocesses, stripping sensitive keys.
+
+    Extended thinking vars (MAX_THINKING_TOKENS etc.) are explicitly forwarded even
+    if the caller passes a narrow extra dict — alwaysThinkingEnabled in settings.json
+    is silently ignored since Claude Code v2.0.64 (issue #13532). These vars are the
+    real switch and must reach every claude subprocess.
+    """
     env = {k: v for k, v in os.environ.items() if k not in SENSITIVE_ENV_KEYS}
+    # Ensure thinking vars are present (start.sh sets them; this is defensive fallback)
+    thinking_defaults = {
+        "MAX_THINKING_TOKENS": "63999",
+        "CLAUDE_CODE_ALWAYS_ENABLE_EFFORT": "1",
+        "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
+        "CLAUDE_CODE_EFFORT_LEVEL": "max",
+    }
+    for k, v in thinking_defaults.items():
+        env.setdefault(k, v)
     if extra:
         env.update(extra)
     return env

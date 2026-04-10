@@ -38,6 +38,16 @@ if [ -f "$LOCAL_ENV" ]; then
     echo "[start.sh] Local .env loaded"
 fi
 
+# 1c. Extended thinking env vars — required because alwaysThinkingEnabled in settings.json
+#     has been silently ignored since Claude Code v2.0.64 (issue #13532, no patch).
+#     MAX_THINKING_TOKENS is the actual switch read from process.env in cli.js.
+#     These are NOT secrets — build_clone_env() passes them through to clone subprocesses.
+export MAX_THINKING_TOKENS="${MAX_THINKING_TOKENS:-63999}"
+export CLAUDE_CODE_ALWAYS_ENABLE_EFFORT="${CLAUDE_CODE_ALWAYS_ENABLE_EFFORT:-1}"
+export CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING="${CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING:-1}"
+export CLAUDE_CODE_EFFORT_LEVEL="${CLAUDE_CODE_EFFORT_LEVEL:-max}"
+echo "[start.sh] Thinking vars set: MAX_THINKING_TOKENS=$MAX_THINKING_TOKENS, EFFORT=$CLAUDE_CODE_EFFORT_LEVEL"
+
 # 2. Start dispatcher if not already running
 if [ -f "$DISPATCHER_PID_FILE" ] && kill -0 "$(cat "$DISPATCHER_PID_FILE")" 2>/dev/null; then
     echo "[start.sh] Dispatcher already running (PID $(cat "$DISPATCHER_PID_FILE"))"
