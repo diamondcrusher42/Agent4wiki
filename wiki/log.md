@@ -1,5 +1,9 @@
 # Wiki Log
 
+## [2026-04-10] feat | V4 Phases 2A/2B/2C/2D — classifier routing, MemPalace, file handshake
+
+Commit `7ad431c` (main). 65 Python + 30 TypeScript tests passing. 2A: `start.sh` production launcher (vault source → dispatcher → status print). 2B: CLAUDE.md rewritten with mandatory 3-tier routing — DIRECT/BRAIN_ONLY/FULL_PIPELINE; BRAIN_ONLY tier previously missing; explicit enforcement rule added; default is BRAIN_ONLY over FULL_PIPELINE when ambiguous. 2C: `query_mempalace()` added to dispatcher.py, injects top-5 relevant memories as "Institutional Memory" section before brain task objective; palace.json (1412 drawers) now queried in production. 2D: `read_handshake_file()` now called before `extract_handshake()` in watch loop; uses `stdout_full` not truncated `stdout` as fallback. Live readiness: 15% → 60%. Page created: [[build-state-2026-04-10-v4-phases]]. Index updated.
+
 ## [2026-04-10] fix | Security S1/S2/S3 — path traversal, git arg injection, shell interpolation
 
 Commit `9ed3369` (main). Multi-reviewer audit (Opus + Gemini external) identified 3 mandatory fixes before testing. All applied by Opus coding agent. S1: `_sanitize_wiki_page_name()` added to `brain/dispatcher.py` — rejects `..`/`/`/`\`, strips non-safe chars, applied to both wiki context loops. S2: `'--'` separator added before `filePath` in `scythe.ts:getGitMtime()`. S3: `execSync` → `execFileSync` array args in `spawner.ts:createWorktree()`. TSC + py_compile clean. Security posture: C+ → B+. Cleared for testing. Also: bin/agent4.ts CLI stubs wired (start/status/audit) + scaffold wikilink fixed (separate commit). Page created: [[fixes-2026-04-10-security-s1s2s3]]. Index updated.
