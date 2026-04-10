@@ -1,5 +1,9 @@
 # Wiki Log
 
+## [2026-04-10] decision | V4 Agent named "Smith" — two-agent architecture finalised
+
+V4 agent officially named **Smith**. Two-agent setup on KEVIN (WSL2): (1) KEVIN = stable session, repo claude-agent-template, bot @planetzabave_bot, tmux "claude-agent", launched via watchdog.sh; (2) Smith = Agent4wiki V4, repo agent4wiki, bot @pz_planet_super_ai_bot (AGENT4WIKI_BOT_TOKEN), tmux "claude-v4", launched via `./start.sh && ./start-user-agent.sh`. CLAUDE.md updated with Smith identity + correct bot. start-user-agent.sh updated with Smith comments. KEVIN memory updated to include Smith. Naming permanent across all repos and memory.
+
 ## [2026-04-10] fix | Wrong bot token — TELEGRAM_BOT_TOKEN swapped to AGENT4WIKI_BOT_TOKEN
 
 User agent was connecting to @pz_planet_ai_bot (main KEVIN bot) instead of @pz_planet_super_ai_bot (dedicated v4 bot). Root cause: `workspace/.env` has both `TELEGRAM_BOT_TOKEN` (what watchdog uses) and `AGENT4WIKI_BOT_TOKEN` (the correct v4 token), but TELEGRAM_BOT_TOKEN was never updated to point to the v4 bot. Fix: `sed` swap in workspace/.env — TELEGRAM_BOT_TOKEN now holds the AGENT4WIKI_BOT_TOKEN value. Restart required for change to take effect. Learning: after creating a dedicated bot token, explicitly update TELEGRAM_BOT_TOKEN in workspace/.env — it's the live switch, not the named key.

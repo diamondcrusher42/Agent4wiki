@@ -1,9 +1,9 @@
 #!/bin/bash
-# Agent4wiki V4 — User Agent Launcher
-# Starts the user-facing Claude session connected to @pz_planet_super_ai_bot.
+# Smith — Agent4wiki V4 User Agent Launcher
+# Starts the user-facing Claude session for Smith, connected to @pz_planet_super_ai_bot.
 # Run this AFTER ./start.sh (which starts the dispatcher).
 #
-# Separate from KEVIN (claude-agent-template / @planetzabave_bot).
+# Smith = Agent4wiki V4 agent. Separate from KEVIN (claude-agent-template / @planetzabave_bot).
 # Separate tmux session: "claude-v4"
 
 set -e

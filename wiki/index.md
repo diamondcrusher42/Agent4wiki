@@ -3,7 +3,7 @@
 > Last updated: 2026-04-10
 > Total pages: 115
 > Sources ingested: 8 repos/articles + 1 architecture session + 14 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
-> Branch: main (V4 live, commit 35ca637 — end-to-end confirmed, thinking fix applied, bot token corrected)
+> Branch: main (V4 live — Smith online, commit 34eefe7 — two-agent architecture: KEVIN @planetzabave_bot + Smith @pz_planet_super_ai_bot)
 
 ## Templates
 
