@@ -716,20 +716,21 @@ def notify_human(task, directive: str, handshake: dict):
     ts = datetime.now(timezone.utc).strftime("%H:%M UTC")
 
     if directive == "NOTE":
-        msg = f"[{ts}] ✓ Task {task.id} complete ({task.skill})\nObjective: {task.objective[:120]}"
+        notes = handshake.get("janitor_notes", "")[:500]
+        msg = f"[{ts}] ✓ Task {task.id} complete ({task.skill})\nObjective: {task.objective[:500]}\nJanitor: {notes}"
         bridge.send(msg)
 
     elif directive == "SUGGEST":
-        notes = handshake.get("janitor_notes", "")[:200]
+        notes = handshake.get("janitor_notes", "")[:500]
         msg = f"[{ts}] ↻ Task {task.id} re-queued — Janitor feedback:\n{notes}"
         bridge.send(msg)
 
     elif directive == "BLOCK":
-        notes = handshake.get("janitor_notes", "")[:200]
+        notes = handshake.get("janitor_notes", "")[:500]
         msg = (
             f"[{ts}] 🚫 Task {task.id} BLOCKED — human intervention required\n"
             f"Skill: {task.skill} | Source: {task.source}\n"
-            f"Objective: {task.objective[:120]}\n"
+            f"Objective: {task.objective[:500]}\n"
             f"Reason: {notes}"
         )
         # Broadcast BLOCK to all channels — this is urgent
