@@ -1026,6 +1026,17 @@ def process_task_file(task_path: Path) -> dict:
     handshake = read_handshake_file(task.id) or extract_handshake(result.get("stdout_full", ""))
 
     if not handshake:
+        # Brain tasks produce free-form output, not JSON handshakes — deliver directly.
+        if task.type == "brain":
+            output_text = result.get("stdout", "").strip()
+            move_to_completed(task, active_path, output_text)
+            bridge = get_bridge()
+            ts = datetime.now(timezone.utc).strftime("%H:%M UTC")
+            bridge.send(f"[{ts}] 🧠 Brain task {task.id}:\n{output_text[:3000]}")
+            log_event("task_finished", {"task_id": task.id, "status": "NOTE", "type": "brain"})
+            log.info(f"[{task.id}] Brain task complete — output delivered via Bridge")
+            return result
+
         # S5 fix: no synthetic approval — clones must output explicit handshake JSON.
         # Exit code 0 without a handshake is FAILED_RETRY (not NOTE) so the clone
         # gets another attempt with a clear directive to output its handshake.
@@ -1059,7 +1070,7 @@ def process_task_file(task_path: Path) -> dict:
 
     if directive == "NOTE":
         log.info(f"[{task.id}] Janitor: NOTE — merging result")
-        move_to_completed(task, active_path, output)
+        move_to_completed(task, active_path, result.get("stdout", ""))
         cleanup_worktree(task.id, task.skill)
         notify_human(task, directive, handshake)
     elif directive == "SUGGEST":
