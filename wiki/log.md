@@ -1,5 +1,9 @@
 # Wiki Log
 
+## [2026-04-10] fix | Security S1/S2/S3 — path traversal, git arg injection, shell interpolation
+
+Commit `9ed3369` (main). Multi-reviewer audit (Opus + Gemini external) identified 3 mandatory fixes before testing. All applied by Opus coding agent. S1: `_sanitize_wiki_page_name()` added to `brain/dispatcher.py` — rejects `..`/`/`/`\`, strips non-safe chars, applied to both wiki context loops. S2: `'--'` separator added before `filePath` in `scythe.ts:getGitMtime()`. S3: `execSync` → `execFileSync` array args in `spawner.ts:createWorktree()`. TSC + py_compile clean. Security posture: C+ → B+. Cleared for testing. Also: bin/agent4.ts CLI stubs wired (start/status/audit) + scaffold wikilink fixed (separate commit). Page created: [[fixes-2026-04-10-security-s1s2s3]]. Index updated.
+
 ## [2026-04-09] janitor | Opus Tier 2 re-audit — post-fixes health check
 
 Commit 444feec (main). 100/100 tests passing. All 5 targeted fixes verified: B1 (template variables), S2 (token estimation), S3 (bridge tests), S4 (benchmark tests), S5 (handshake enforcement). 0 BLOCKs. 3 new SUGGEST: stale TASK.md at repo root, silent scopes.yaml load failure, TASK.md written with unreplaced INJECT_ALLOWED_PATHS_HERE. 3 carried NOTEs (S1/S6/S7 still absent, low risk). Secrets scan clean. Health score: 82/100 (+42 from 40). Page created: [[janitor-audit-2026-04-09-post-fixes]].
