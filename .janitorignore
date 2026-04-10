@@ -1,6 +1,16 @@
 state/
+state/**
+state/worktrees/
+state/worktrees/**
+state/worktrees/quarantine/
+state/worktrees/quarantine/**
 test/
+test/**
 raw/
+raw/**
 node_modules/
+node_modules/**
 dist/
+dist/**
 .venv/
+.venv/**
