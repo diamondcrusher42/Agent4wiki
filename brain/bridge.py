@@ -93,7 +93,10 @@ class Bridge:
 
         log.info(f"[BRIDGE] Channels available: {', '.join(channels) if channels else 'NONE'}")
         if not channels:
-            log.warning("[BRIDGE] No channels configured — all output will be lost")
+            raise ValueError(
+                "[BRIDGE] No delivery channels configured — set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID at minimum. "
+                "Without a channel, all task results are silently lost."
+            )
 
     # ──────────────────────────────────────────────────────────────────────────
     # PUBLIC API

@@ -500,6 +500,30 @@ def create_worktree(task: Task) -> Optional[Path]:
         return None
 
 
+def cleanup_worktree(task_id: str, skill: str):
+    """Remove the git worktree for a completed or failed clone task.
+
+    Called after NOTE (success) and BLOCK (terminal failure) so worktrees
+    don't accumulate on disk. SUGGEST re-queues intentionally skip cleanup
+    because the clone may continue work in the same worktree on retry.
+    """
+    worktree_name = f"clone-{skill}-{task_id}"
+    worktree_path = BASE_DIR / "state" / "worktrees" / worktree_name
+    if not worktree_path.exists():
+        return
+    try:
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(worktree_path)],
+            cwd=str(BASE_DIR),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        log.info(f"[WORKTREE] Cleaned up: {worktree_name}")
+    except subprocess.CalledProcessError as e:
+        log.warning(f"[WORKTREE] Failed to remove {worktree_name}: {e.stderr.strip()}")
+
+
 def provision_keychain(worktree_path: Path, required_keys: list) -> bool:
     """Ask the Keychain to provision credentials for this worktree."""
     if not required_keys:
@@ -893,12 +917,22 @@ def write_forge_record(task: "Task", directive: str, handshake: dict):
 
 
 def requeue_task(task: "Task", inbox_dir: Path):
-    """Re-drop a modified task into the inbox with incremented retry counter."""
+    """Re-drop a modified task into the inbox with incremented retry counter.
+
+    Uses atomic write (tmp file → rename) so the dispatcher never reads a
+    half-written task file even if this call is interrupted mid-write.
+    """
+    import tempfile
     task.retry_count += 1
     task_data = asdict(task)
     requeue_path = inbox_dir / f"{task.id}-retry{task.retry_count}.json"
-    with open(requeue_path, "w") as f:
-        json.dump(task_data, f, indent=2)
+    # Write to a sibling .tmp file then rename — atomic on same filesystem
+    with tempfile.NamedTemporaryFile(
+        mode="w", dir=inbox_dir, suffix=".tmp", delete=False
+    ) as tmp:
+        json.dump(task_data, tmp, indent=2)
+        tmp_path = Path(tmp.name)
+    tmp_path.rename(requeue_path)
     log.info(f"[JANITOR] Re-queued {task.id} (retry {task.retry_count}) to {requeue_path}")
 
 
@@ -1026,6 +1060,7 @@ def process_task_file(task_path: Path) -> dict:
     if directive == "NOTE":
         log.info(f"[{task.id}] Janitor: NOTE — merging result")
         move_to_completed(task, active_path, output)
+        cleanup_worktree(task.id, task.skill)
         notify_human(task, directive, handshake)
     elif directive == "SUGGEST":
         log.info(f"[{task.id}] Janitor: SUGGEST — re-queuing with feedback")
@@ -1046,6 +1081,7 @@ def process_task_file(task_path: Path) -> dict:
     elif directive == "BLOCK":
         log.warning(f"[{task.id}] Janitor: BLOCK — escalating to human")
         move_to_failed(task, active_path, f"Janitor BLOCK: {handshake.get('janitor_notes', '')}")
+        cleanup_worktree(task.id, task.skill)
         notify_human(task, directive, handshake)
 
     log_event("task_finished", {

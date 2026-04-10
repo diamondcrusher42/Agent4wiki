@@ -73,7 +73,7 @@ Only dispatch to the pipeline when file writes or code execution are genuinely n
 
 3. The dispatcher (running as PID in background) picks it up within 2 seconds
 4. A clone runs in a git worktree sandbox, Janitor reviews, Bridge sends result to Telegram
-5. You will receive the result — relay it to Jure
+5. Bridge delivers the result directly to Telegram when the clone finishes. Session is stateless — do not wait for or relay clone results. Move on to the next message immediately.
 
 ### Skill values for task.json
 - `"code"` — file creation, editing, coding tasks
