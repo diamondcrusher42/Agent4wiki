@@ -1,0 +1,35 @@
+wing: wiki
+rooms:
+- name: decisions
+  description: Files from decisions/
+  keywords:
+  - decisions
+  - decisions
+- name: entities
+  description: Files from entities/
+  keywords:
+  - entities
+  - entities
+- name: scripts
+  description: Files from tools/
+  keywords:
+  - scripts
+  - tools
+- name: concepts
+  description: Files from concepts/
+  keywords:
+  - concepts
+  - concepts
+- name: segments
+  description: Files from segments/
+  keywords:
+  - segments
+  - segments
+- name: forge
+  description: Files from forge/
+  keywords:
+  - forge
+  - forge
+- name: general
+  description: Files that don't fit other rooms
+  keywords: []

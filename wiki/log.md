@@ -326,3 +326,14 @@ Source: raw/opus-review88-phase57-deep-review.md. Model: Opus 4.6. 5-role struct
 ## [2026-04-08] plan | plan-build-v3.md — security + reliability + quality fixes for Opus
 
 Build brief consolidating findings from Gemini review 88 + Opus review 88. Phase A (security, do first): A1 SSH injection fix in dispatch_remote() — scp temp file instead of echo inline; A2 strip VAULT_MASTER_PASSWORD from clone process.env via buildCloneEnv(); A3 noLeaks false now forces BLOCK return (currently just logs). Phase B (reliability): B1 file-based handshake — clone writes state/handshakes/<id>.json, dispatcher reads file not stdout; B2 replace hand-rolled YAML parsers with js-yaml + PyYAML; B3 getModifiedFiles() recursive subdirectory scan; B4 orphaned worktree watchdog cron. Phase C (quality): C1 wire executeDirect() to real Haiku API call; C2 conversationHistory size limit + token-based flush; C3 Forge evaluator uses real metrics (ShadowRunner tokensConsumed, code diff preview, real forge events in ratchet). Target: 84 → 102 tests. Pages created: [[plan-build-v3]]. Index updated (82 pages).
+
+## 2026-04-10 — v4 Full Activation
+
+- **npm install** completed (469 packages, 0 TS compile errors)
+- **160/160 Jest tests** passing
+- **MemPalace** installed (v3.1.0), palace initialized at `state/memory/palace/`, 1412 drawers mined from wiki
+- **MemPalace adapter** patched: `mempalace.server` → `mempalace.mcp_server`
+- **End-to-end pipeline test** passed: inbox → worktree spawn → clone → Janitor (NOTE) → Bridge → Telegram
+- **CLAUDE.md** updated with Task Routing section (Telegram → task.json → dispatcher pipeline)
+- **Telegram bot** token updated to dedicated token (8333680340), clone-army conflict resolved
+- **Dispatcher** running PID 99579, watching `brain/inbox/` on 2s poll

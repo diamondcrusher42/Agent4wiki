@@ -1,0 +1,9 @@
+{
+  "id": "task-test-001",
+  "type": "clone",
+  "objective": "Create a file called HELLO.txt in the worktree root containing exactly: 'Hello from Clone #1 — agent4wiki v4 pipeline test'",
+  "source": "manual-test",
+  "skill": "code",
+  "required_keys": [],
+  "timeout_minutes": 5
+}
