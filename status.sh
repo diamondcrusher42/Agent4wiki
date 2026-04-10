@@ -44,8 +44,17 @@ echo ""
 # 3. Bridge token
 echo "[Bridge]"
 if [ -f "$VAULT" ]; then
+    set -a
     # shellcheck disable=SC1090
     source "$VAULT" 2>/dev/null
+    set +a
+fi
+LOCAL_ENV_STATUS="$AGENT_DIR/.env"
+if [ -f "$LOCAL_ENV_STATUS" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$LOCAL_ENV_STATUS" 2>/dev/null
+    set +a
 fi
 if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
     pass "Telegram token configured (chat_id: $TELEGRAM_CHAT_ID)"
@@ -57,10 +66,10 @@ echo ""
 
 # 4. Task queue state
 echo "[Task Queue]"
-INBOX_COUNT=$(ls "$AGENT_DIR/brain/inbox/" 2>/dev/null | grep -c '\.json$' || echo 0)
-ACTIVE_COUNT=$(ls "$AGENT_DIR/brain/active/" 2>/dev/null | grep -c '\.json$' || echo 0)
-COMPLETED_COUNT=$(ls "$AGENT_DIR/brain/completed/" 2>/dev/null | grep -c '\.json$' || echo 0)
-FAILED_COUNT=$(ls "$AGENT_DIR/brain/failed/" 2>/dev/null | grep -c '\.json$' || echo 0)
+INBOX_COUNT=$(find "$AGENT_DIR/brain/inbox/" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l)
+ACTIVE_COUNT=$(find "$AGENT_DIR/brain/active/" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l)
+COMPLETED_COUNT=$(find "$AGENT_DIR/brain/completed/" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l)
+FAILED_COUNT=$(find "$AGENT_DIR/brain/failed/" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l)
 pass "Inbox:     $INBOX_COUNT waiting"
 pass "Active:    $ACTIVE_COUNT running"
 pass "Completed: $COMPLETED_COUNT done"
@@ -72,16 +81,17 @@ fi
 
 echo ""
 
-# 5. Worktrees
+# 5. Worktrees (only dispatcher-managed: state/worktrees/clone-*)
 echo "[Worktrees]"
-WT_COUNT=$(git -C "$AGENT_DIR" worktree list 2>/dev/null | grep -c 'clone-' || echo 0)
+WT_DIR="$AGENT_DIR/state/worktrees"
+WT_COUNT=$(find "$WT_DIR" -maxdepth 1 -type d -name 'clone-*' 2>/dev/null | wc -l)
 if [ "$WT_COUNT" -gt 0 ]; then
-    pass "$WT_COUNT clone worktree(s) active"
-    git -C "$AGENT_DIR" worktree list 2>/dev/null | grep 'clone-' | while read -r line; do
-        echo "    $line"
+    pass "$WT_COUNT dispatcher clone worktree(s) active (state/worktrees/)"
+    find "$WT_DIR" -maxdepth 1 -type d -name 'clone-*' 2>/dev/null | while read -r wt; do
+        echo "    $(basename "$wt")"
     done
 else
-    pass "No active clone worktrees (clean)"
+    pass "No active dispatcher clone worktrees (clean)"
 fi
 
 echo ""

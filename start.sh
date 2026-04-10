@@ -27,6 +27,17 @@ else
     echo "[start.sh] WARNING: vault not found at $VAULT — credentials may be missing"
 fi
 
+# 1b. Source local .env (non-secret config: TELEGRAM_CHAT_ID, etc.)
+#     Sourced after vault so vault values take precedence.
+LOCAL_ENV="$AGENT_DIR/.env"
+if [ -f "$LOCAL_ENV" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$LOCAL_ENV"
+    set +a
+    echo "[start.sh] Local .env loaded"
+fi
+
 # 2. Start dispatcher if not already running
 if [ -f "$DISPATCHER_PID_FILE" ] && kill -0 "$(cat "$DISPATCHER_PID_FILE")" 2>/dev/null; then
     echo "[start.sh] Dispatcher already running (PID $(cat "$DISPATCHER_PID_FILE"))"
