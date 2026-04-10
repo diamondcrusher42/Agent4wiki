@@ -1,9 +1,9 @@
 # Agent Architecture Wiki — Index
 
-> Last updated: 2026-04-09
-> Total pages: 114
+> Last updated: 2026-04-10
+> Total pages: 115
 > Sources ingested: 8 repos/articles + 1 architecture session + 14 external reviews + 2 implementation plans + 1 research PDF + 1 template + 1 multi-channel bridge + Phase 1 benchmark results + Phase 2 Forge automated benchmark
-> Branch: main (v9 post-fixes, commit 444feec — 100/100 tests, 0 BLOCKs, health 82/100)
+> Branch: main (V4 live, commit 35ca637 — end-to-end confirmed, thinking fix applied, bot token corrected)
 
 ## Templates
 
